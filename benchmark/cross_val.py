@@ -300,7 +300,7 @@ def run_experiment(task: dict[str, Any]) -> dict[str, Any]:
     forecast = np.zeros_like(pos)
     ic = 0.0
     sign_acc = 0.0
-    if cfg.mode == "both":
+    if cfg.mode in ("both", "derived"):
         forecast = predict_range(model, x_all, te0, te1, cfg.seq_len, device, head="value")
         if np.std(forecast) > 0:
             ic = float(spearmanr(forecast, ret).statistic)

@@ -39,11 +39,15 @@ model, info = _train(
     torch.device("cpu"),
 )
 pos = predict_range(model, X, split.test[0], split.test[1], 30, torch.device("cpu"))
-mt = compute_metrics(pos, R[split.test[0] : split.test[1]])
+fc = predict_range(model, X, split.test[0], split.test[1], 30, torch.device("cpu"), head="value")
+ret = R[split.test[0] : split.test[1]]
+mt = compute_metrics(pos, ret)
+from scipy.stats import spearmanr
+ic = float(spearmanr(fc, ret).statistic)
 hist = [(h["epoch"], round(h["train_loss"], 2), round(h["val_sharpe"], 3)) for h in info["history"]]
 print(
     f"DERIVED {act} {time.perf_counter() - t0:.0f}s hist={hist} "
-    f"TEST sharpe={mt.sharpe:.3f} active={mt.active_sharpe:.3f} ic={mt.ic:.4f} "
+    f"TEST sharpe={mt.sharpe:.3f} active={mt.active_sharpe:.3f} ic={ic:.4f} "
     f"turn={mt.turnover:.5f} expo={mt.exposure:.3f} pos_std={float(pos.std()):.4f} "
     f"best_val={info['best_val_sharpe']:.3f}",
     flush=True,
