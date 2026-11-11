@@ -67,6 +67,7 @@ class TrainConfig:
     sup_weight: float = 1.0
     use_conv: bool = True
     use_ssm: bool = True
+    center_returns: bool = True
     bars_per_year: int = BARS_PER_YEAR
 
     def to_dict(self) -> dict[str, Any]:
@@ -196,6 +197,14 @@ def _train(
     # Unit-variance target for the forecast head: raw 5-minute log returns are
     # O(1e-4), so an unstandardised MSE would be numerically invisible.
     r_scale = float(np.std(r_train)) or 1.0
+    # Center the training target on the train-slice mean return. A Sharpe
+    # objective is invariant to the scale of the position, so on a trending
+    # asset it is maximised by a constant long position and cannot discriminate
+    # between activations. Removing the drift makes the objective reward timing
+    # instead of exposure. The offset is a single constant estimated from the
+    # training slice only, so no information crosses the split boundary, and all
+    # reported metrics are still computed on the raw returns.
+    r_offset = float(np.mean(r_train)) if cfg.center_returns else 0.0
 
     best = {"val_sharpe": -np.inf, "epoch": -1, "state": None}
     history: list[dict[str, float]] = []
@@ -207,7 +216,9 @@ def _train(
             starts = np.arange(s, s + cfg.batch_size + 1)
             xb = torch.from_numpy(_windows(x_train, starts, cfg.seq_len)).to(device)
             out = model(xb)  # (B+1,) positions for bars s+T-1 .. s+T+B-1
-            rb = torch.from_numpy(r_train[s + cfg.seq_len : s + cfg.seq_len + cfg.batch_size]).to(device)
+            rb = torch.from_numpy(
+                r_train[s + cfg.seq_len : s + cfg.seq_len + cfg.batch_size] - r_offset
+            ).to(device)
             if isinstance(out, tuple):
                 pos, forecast = out
             else:
@@ -225,7 +236,11 @@ def _train(
 
         pos_val = predict_range(model, x_val, cfg.seq_len - 1, len(x_val), cfg.seq_len, device)
         # Bars [seq_len-1, len(x_val)) of the val slice; label r[t+1] sits at the same index.
-        m = compute_metrics(pos_val, r_val[cfg.seq_len - 1 :], cfg.fee_ratio, cfg.bars_per_year)
+        # Model selection uses the same drift-free criterion as the objective,
+        # otherwise early stopping would pick whichever epoch was most long.
+        m = compute_metrics(
+            pos_val, r_val[cfg.seq_len - 1 :] - r_offset, cfg.fee_ratio, cfg.bars_per_year
+        )
         history.append({"epoch": epoch, "train_loss": float(np.mean(losses)), "val_sharpe": m.sharpe})
         if m.sharpe > best["val_sharpe"]:
             best = {

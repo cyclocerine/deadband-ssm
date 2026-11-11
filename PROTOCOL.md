@@ -110,3 +110,41 @@ short budget the run-to-run variance of a single configuration is comparable to
 the between-activation difference. Cells that end in either failure mode
 (near-constant long position, or chattering with turnover above 0.05 per bar)
 are reported as they are, not filtered out.
+
+## Amendment 4 — drift-centred training target (before the full grid)
+
+Recorded after the pilot grid and before the grid reported in the paper.
+
+A Sharpe-ratio objective is invariant to the scale of the position: scaling
+`a_t` by `lambda > 0` scales both the mean and the standard deviation of the net
+stream by `lambda`. On an asset with a positive drift, the maximiser of that
+objective is therefore a constant long position, and the pilot confirmed it:
+across 9 pilot cells, every arm that converged sat at exposure 0.99 with
+turnover of 1e-3 per bar, while the arms that did not converge chattered at
+turnover 0.1 and lost the fee. Extending one Q-ALU cell to 1200 steps (twice
+the grid budget) did not change the regime: validation Sharpe settled at
+4.28--4.34, out-of-sample exposure was 1.000 with turnover 1.1e-4 per bar. A
+validation Sharpe of 4.3 obtained by holding the asset is the asset's own
+drift, not timing skill, and it is the maximum of the objective as written.
+In neither regime can the choice of activation matter, so the pilot cannot
+answer the question the paper asks.
+
+The training target is therefore centred on the mean return of the training
+slice:
+
+```
+r~_t = r_t - mean(r_train)          (one constant per fold, from train only)
+```
+
+The policy loss and the validation criterion used for model selection are both
+computed on `r~`. Nothing else changes: the architecture, the optimiser, the
+budget, the splits and the purge gaps are untouched, and every reported metric
+(raw Sharpe, active Sharpe, IC, drawdown, turnover) is computed on the raw
+returns. The offset is a single scalar estimated from the training slice, so no
+information crosses the split boundary, and the transformation is applied
+identically to all four activations.
+
+The effect is that a constant long position earns zero before fees instead of
+the market's drift, so the objective can only be improved by timing. This is a
+design correction made before the grid whose results are reported, and it is
+recorded here rather than discovered after the fact.

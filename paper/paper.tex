@@ -288,6 +288,20 @@ every candidate and replays the same batch indices in the same order, so a
 difference between two cells is attributable to the activation, not to the
 draw.
 
+\paragraph{Objective}
+The policy minimises the negative annualised Sharpe of its net stream,
+$-\sqrt{105120}\,\bar{s}/\hat{\sigma}_s$ with
+$s_t=a_t r_t-\phi|a_t-a_{t-1}|$, plus the turnover term already inside $s_t$ and
+an auxiliary MSE on the forecast head. That ratio is invariant to the scale of
+the position, so on an asset with a positive drift its maximiser is a constant
+long position and the objective cannot distinguish activations. The training
+target is therefore centred on the mean return of the training slice,
+$\tilde r_t=r_t-\overline{r}_{\mathrm{train}}$, and both the policy loss and the
+validation criterion used for model selection are computed on $\tilde r$. The
+offset is a single scalar estimated from the training slice alone, so no
+information crosses a split boundary; every reported metric is computed on the
+raw returns.
+
 \paragraph{Inference cost}
 Positions are emitted per bar and held for one bar; turnover is charged on
 $|a_t-a_{t-1}|$ including the entry from flat. No leverage, no shorting
@@ -308,6 +322,16 @@ zero, the Wilcoxon $p<0.05$, and Diebold--Mariano does not favour $B$.
 
 \input{tables/results}
 
+\paragraph{Reading the table}
+Sharpe is annualised on the net stream after the 5\,bp fee. \emph{Active} is the
+same statistic on the difference against a fee-matched buy-and-hold, so a policy
+that simply holds the asset scores exactly $0.000$ there and the column isolates
+whatever the network adds. \emph{IC} is the Spearman rank correlation between the
+forecast head and the next-bar return, a low-variance diagnostic that survives
+even when the policy head saturates. Turnover and exposure explain how the
+Sharpe was earned: the same mean return can come from a stable long position or
+from chattering that pays the fee twice.
+
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/activation.pdf}
@@ -322,7 +346,7 @@ its positive branch peaks $9.98\%$ above the $2\alpha$ asymptote.}
 \includegraphics[width=\textwidth]{figures/equity.pdf}
 \caption{Stitched out-of-sample equity curves of the four candidates over the
 five walk-forward test blocks (log scale). The curves are the equal-weight
-ensemble of three paired seeds.}
+ensemble of \nSeeds{} paired seeds.}
 \label{fig:equity}
 \end{figure*}
 
