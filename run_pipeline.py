@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--d-model", type=int, default=32)
     ap.add_argument("--n-layers", type=int, default=2)
     ap.add_argument("--d-state", type=int, default=8)
-    ap.add_argument("--mode", default="both")
+    ap.add_argument("--mode", default="derived")
     ap.add_argument("--sup-weight", type=float, default=1.0)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--device", default="cpu")
