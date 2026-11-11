@@ -28,6 +28,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 from core.model import DeadbandSSM
 
@@ -84,8 +85,11 @@ def export_torchscript(model: DeadbandSSM, path: str | Path, seq_len: int, n_fea
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     model.eval()
+    # The wrapper is a fresh module, so it starts in training mode; freeze()
+    # refuses anything that is not in eval mode.
+    wrapper = PositionOnly(model).eval()
     with torch.no_grad():
-        traced = torch.jit.trace(PositionOnly(model), _example(seq_len, n_features), strict=False)
+        traced = torch.jit.trace(wrapper, _example(seq_len, n_features), strict=False)
         traced = torch.jit.freeze(traced)  # folds the FIR kernel into constants
     traced.save(str(path))
     return path
@@ -104,6 +108,10 @@ def export_onnx(model: DeadbandSSM, path: str | Path, seq_len: int, n_features: 
         dynamic_axes={"features": {0: "batch"}, "position": {0: "batch"}},
         opset_version=17,
         do_constant_folding=True,
+        # One self-contained file: the exporter would otherwise spill the
+        # recurrent coefficients into a sibling model.onnx.data that a
+        # deployment has to copy alongside and that no size report counts.
+        external_data=False,
     )
     return path
 
