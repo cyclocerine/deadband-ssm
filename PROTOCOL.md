@@ -63,7 +63,7 @@ The model is a policy: at bar `t` it emits one weight in `[-1, 1]` from
 The headline claim is "Q-ALU beats baseline B" only if **all** of the
 following hold for that baseline:
 
-1. mean paired Sharpe difference > 0 across the 15 (fold, seed) cells;
+1. mean paired Sharpe difference > 0 across the (fold, seed) cells;
 2. the 95% bootstrap CI of that difference excludes 0;
 3. the Wilcoxon signed-rank p-value < 0.05;
 4. the Diebold-Mariano test on the stitched OOS stream does not reject equal
@@ -92,3 +92,21 @@ Two additions, neither of which replaces the pre-registered headline:
 
 The decision rule above still governs the headline claim, and it is evaluated
 on the raw post-cost Sharpe. The amendment only adds diagnostics.
+
+## Amendment 2 — benchmark pays the same entry cost (before the full grid)
+
+`active_sharpe` subtracts a buy-and-hold stream that is charged the identical
+entry fee, so that a policy that never trades after the first bar scores
+exactly 0.000 and not a small negative number caused by comparing a
+fee-paying strategy against a free one.
+
+## Amendment 3 — training budget is part of the protocol
+
+All four activations receive the same optimiser (AdamW), learning rate, batch
+size, epoch count, steps per epoch and batch order; only the activation
+differs. The budget is set by what a single commodity CPU can execute for the
+whole grid, and it is reported in the paper next to the results, because at a
+short budget the run-to-run variance of a single configuration is comparable to
+the between-activation difference. Cells that end in either failure mode
+(near-constant long position, or chattering with turnover above 0.05 per bar)
+are reported as they are, not filtered out.

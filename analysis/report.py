@@ -292,7 +292,10 @@ def latex_macros(analysis: dict[str, Any], path: str | Path, deploy: dict[str, A
         lines.append(f"\\newcommand{{\\dsrHurdle}}{{{dsr['hurdle_sharpe']:.3f}}}")
         lines.append(f"\\newcommand{{\\dsrTrials}}{{{dsr['n_trials']}}}")
     if deploy:
-        lines.append(f"\\newcommand{{\\parity}}{{{max(deploy['parity'].values()):.1e}}}")
+        _par = max(deploy["parity"].values())
+        lines.append(
+            "\\newcommand{\\parity}{%s}" % ("0.0" if _par < 1e-9 else f"{_par:.1e}")
+        )
         lines.append(f"\\newcommand{{\\latencyOnnx}}{{{deploy['latency_ms']['onnxruntime']['p50']:.2f}}}")
         lines.append(f"\\newcommand{{\\latencyTorch}}{{{deploy['latency_ms']['torchscript']['p50']:.2f}}}")
         lines.append(f"\\newcommand{{\\rssOnnx}}{{{deploy['rss_mb']['onnxruntime']:.1f}}}")

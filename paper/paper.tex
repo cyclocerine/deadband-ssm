@@ -358,11 +358,14 @@ paired seeds without that spread would overstate the precision of the comparison
 \paragraph{Deployment}
 The exported model is a pure feed-forward computation: a grouped convolution
 with a $T$-tap kernel, element-wise recurrence coefficients folded at export
-time, and two small linear maps. TorchScript and ONNX Runtime outputs agree
-with PyTorch to within \parity{} in maximum absolute deviation. On the
-reference machine (Intel Celeron N2930, no AVX) single-bar inference takes
-\latencyOnnx\,ms (p50) in ONNX Runtime, and the incremental resident set of an
-isolated inference process is \rssOnnx\,MB, inside the 50\,MB budget.
+time, and two small linear maps. The ONNX artifact is \onnxKb\,KB. TorchScript
+and ONNX Runtime outputs agree with PyTorch to within \parity{} in maximum
+absolute deviation. On the reference machine (Intel Celeron N2930, no AVX)
+single-bar inference takes \latencyTorch\,ms (p50) under TorchScript and
+\latencyOnnx\,ms (p50) under ONNX Runtime, and the incremental resident set of an
+isolated inference process is \rssOnnx\,MB, inside the 50\,MB budget. The budget
+holds because no term in the model is quadratic in $T$: the convolution is
+$O(T k D)$ and the recurrence is $O(T D N)$ with $N=8$.
 
 \section{Conclusion}
 

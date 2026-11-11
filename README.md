@@ -62,8 +62,23 @@ X (B,T,4) --Linear--> Z (B,T,32)
   as a linear scan or, for `T <= 64`, as a single grouped convolution with the
   exact closed-form impulse response `k_j = sum_n C_n a_n^j b_n`.
 * No self-attention, no `O(T^2)` term. Complexity is `O(T D N)` per layer.
-* ~20k parameters; single-bar inference in the low milliseconds on a CPU
-  without AVX.
+* 4458 parameters (Q-ALU) vs 4450 (ReLU).
+
+## Deployment, measured
+
+Numbers below come from `export/report.json`, produced by
+`run_pipeline.py --stage export` on the reference machine (Intel Celeron N2930,
+4 cores, no AVX/FMA, single thread):
+
+| artifact | size | p50 latency, one bar | peak incremental RSS |
+|---|---|---|---|
+| PyTorch eager | — | 19.6 ms | — |
+| TorchScript | 43 KB | 8.5 ms | 231 MB |
+| ONNX Runtime | 147 KB | 5.3 ms | **37.1 MB** |
+
+Both exports reproduce the PyTorch policy exactly (max abs deviation 0.0). The
+50 MB inference budget is met by the ONNX Runtime path; the TorchScript RSS is
+dominated by the PyTorch runtime itself, not by the model.
 
 ## Protocol in one paragraph
 
