@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deadband-ssm"
+version = "1.0.0"
+description = "Deadband-SSM: a causal dual-stream state-space policy network with Q-ALU activation for cost-aware crypto trading"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Faiq Hammam Mutaqin", email = "hammamfaiq@protonmail.com" }]
+keywords = ["state-space-model", "activation-function", "quantitative-finance", "q-alu", "pytorch"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "psutil>=5.9",
+    "qalu-pytorch>=0.1.0",
+]
+
+[project.optional-dependencies]
+export = ["onnx>=1.15", "onnxruntime>=1.17"]
+dev = ["pytest>=7.4"]
+
+[project.urls]
+Homepage = "https://github.com/cyclocerine/deadband-ssm"
+QALU = "https://github.com/cyclocerine/qalu-pytorch"
+
+[tool.setuptools]
+packages = ["core", "data", "metrics", "benchmark", "export"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

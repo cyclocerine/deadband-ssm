@@ -1,0 +1,17 @@
+\begin{table*}[t]
+\centering
+\caption{Out-of-sample results over 4 paired cells (2 folds $\times$ 1 seeds). Sharpe is annualised on the post-cost net stream; turnover is mean $|a_t-a_{t-1}|$ per bar. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}
+\label{tab:results}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Activation & Sharpe & Active & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\
+\midrule
+Q-ALU$^{\ast}$ & -25.470 $\pm$ 3.325 & +0.000 & +0.0000 & -826.1\% & -100.0\% & 0.1629 & 0.661 & 4458 \\
+ReLU & -49.620 $\pm$ 29.638 & +0.000 & +0.0000 & -1414.2\% & -100.0\% & 0.2739 & 0.569 & 4450 \\
+\midrule
+\multicolumn{9}{l}{\footnotesize Q-ALU $-$ ReLU: $\Delta$Sharpe +24.150 [+5.543, +42.756], $p_{\mathrm{W}}=0.500$} \\
+\bottomrule
+\end{tabular}
+\end{table*}

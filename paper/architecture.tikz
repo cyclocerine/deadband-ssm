@@ -1,0 +1,56 @@
+% Deadband-SSM architecture. Requires: tikz, positioning, arrows.meta, fit, backgrounds, calc.
+% Compile standalone with \documentclass[tikz,border=4pt]{standalone}, or \input from paper.tex.
+\begin{tikzpicture}[
+  font=\footnotesize,
+  >=Latex,
+  node distance=4mm and 5mm,
+  box/.style={draw, rounded corners=2pt, align=center, minimum height=7mm,
+              inner sep=3pt, line width=0.5pt},
+  stream/.style={box, fill=blue!6},
+  act/.style={box, fill=orange!12, line width=0.8pt},
+  io/.style={box, fill=black!4, minimum height=6mm},
+  grp/.style={draw, dashed, rounded corners=3pt, inner sep=4pt, line width=0.4pt, black!45},
+  ar/.style={->, line width=0.5pt},
+  lbl/.style={font=\scriptsize\itshape, inner sep=1pt}
+]
+
+% ---------------- input ----------------
+\node[io] (in) {$\mathbf{X}\in\mathbb{R}^{B\times T\times F}$\\[-1pt]{\scriptsize $T{=}30,\ F{=}4$}};
+\node[box, right=of in] (proj) {$\mathbf{W}_{\mathrm{in}}$\\[-1pt]{\scriptsize $\mathbb{R}^{F}\!\to\!\mathbb{R}^{D}$}};
+\node[io, right=of proj] (x) {$\mathbf{Z}^{0}\in\mathbb{R}^{B\times T\times D}$};
+
+% ---------------- block ----------------
+\node[stream, below=9mm of x, xshift=-30mm] (conv)
+  {Stream A: depthwise causal Conv1d\\[-1pt]{\scriptsize $k{=}3$, dil $2^{i}$, pad $(k{-}1)2^{i}$, slice $[:T]$}};
+\node[stream, below=9mm of x, xshift=30mm] (ssm)
+  {Stream B: linear recurrence\\[-1pt]{\scriptsize $h_t{=}\bar a\,h_{t-1}{+}\bar b\,x_t$, \ $y_t{=}\mathbf{C}h_t{+}\mathbf{D}x_t$}};
+\node[box, below=7mm of x, fill=black!4] (add) {$\mathbf{Z}^{l}=\mathrm{LN}\!\left(\mathbf{A}(\mathbf{Z}^{l-1})+\mathbf{B}(\mathbf{Z}^{l-1})\right)$};
+\node[act, below=6mm of add] (qalu) {$\mathbf{H}^{l}=\mathrm{QALU}(\mathbf{Z}^{l})$};
+\node[box, below=6mm of qalu] (res) {$\mathbf{Z}^{l+1}=\mathbf{Z}^{l}+\mathbf{W}_{\mathrm{out}}\mathbf{H}^{l}$};
+\node[lbl, right=1mm of res] {$\times L{=}2$};
+
+% ---------------- heads ----------------
+\node[io, below=8mm of res] (ro) {terminal-step readout $\mathbf{z}_{T}\in\mathbb{R}^{D}$};
+\node[box, below left=6mm and -2mm of ro] (sup) {value head\\[-1pt]{\scriptsize $\mathbf{w}_{\mathrm{sup}}\mathbf{z}_{T}$}};
+\node[box, below right=6mm and -2mm of ro] (pol) {policy head\\[-1pt]{\scriptsize $\tanh(\mathbf{w}_{\mathrm{pol}}\mathbf{z}_{T})\in[-1,1]$}};
+
+% ---------------- edges ----------------
+\draw[ar] (in) -- (proj);
+\draw[ar] (proj) -- (x);
+\draw[ar] (x.south) -- ++(0,-2mm) -| (conv.north);
+\draw[ar] (x.south) -- ++(0,-2mm) -| (ssm.north);
+\draw[ar] (conv.south) |- (add.west);
+\draw[ar] (ssm.south) |- (add.east);
+\draw[ar] (add) -- (qalu);
+\draw[ar] (qalu) -- (res);
+\draw[ar] (res) -- (ro);
+\draw[ar] (ro) -- (sup);
+\draw[ar] (ro) -- (pol);
+
+% residual skip drawn outside the block
+\draw[ar, black!55, dashed] (x.west) -- ++(-6mm,0) |- node[lbl, pos=0.25, left] {skip} (res.west);
+
+% group frame
+\node[grp, fit=(conv)(ssm)(add)(qalu)(res), label={[font=\scriptsize\scshape, black!55]above:Deadband-SSM block $\times L$}] {};
+
+\end{tikzpicture}
