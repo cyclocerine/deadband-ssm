@@ -362,7 +362,8 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
     expo = min(s[a]["exposure"] for a in order)
     turn = max(s[a]["turnover"] for a in order)
     act_abs = max(abs(s[a].get("active_sharpe", 0.0)) for a in order)
-    if expo > 0.90 and turn < 0.02:
+    ic_max = max(abs(s[a].get("ic", 0.0)) for a in order)
+    if expo > 0.90 and turn < 0.02 and act_abs < 0.25:
         parts.append(
             f"All four arms collapse to a near-constant long position (mean exposure "
             f"$\\geq$ {expo:.3f}, mean turnover $\\leq$ {turn:.4f} per bar, $|$active "
@@ -377,20 +378,43 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
             )
             + " over the stitched out-of-sample blocks."
         )
+    elif expo > 0.90 and turn < 0.02:
+        parts.append(
+            f"Every arm stays long-biased (mean exposure $\\geq$ {expo:.3f} at a mean "
+            f"turnover $\\leq$ {turn:.4f} per bar), so a large part of each raw Sharpe "
+            f"ratio is the drift of the underlying asset rather than timing. The tilts "
+            f"are not inert, however: the fee-matched active Sharpe reaches "
+            f"{act_abs:.3f} and the forecast ranks next-bar returns with "
+            f"$|$IC$|$ up to {ic_max:.4f}, so what separates the arms is the quality of "
+            f"a weak forecast read out through a near-constant long, not the size of the "
+            f"position."
+        )
 
     result = " ".join(p if p.rstrip().endswith(".") else p.rstrip() + "." for p in parts)
+
+    if confirmed:
+        tail = (
+            "; the paired differences against "
+            + ", ".join(LABELS[b] for b in confirmed)
+            + " are positive with intervals excluding zero"
+        )
+    elif expo > 0.90 and turn < 0.02 and act_abs < 0.25:
+        tail = (
+            "; the paired differences are not significant, and all four arms collapse "
+            "to a near-constant long position whose only measurable difference is fee drag"
+        )
+    elif expo > 0.90 and turn < 0.02:
+        tail = (
+            "; the paired differences are not significant, and every arm is long-biased, "
+            "so what separates them is forecast quality rather than exposure"
+        )
+    else:
+        tail = "; the paired differences are not significant"
 
     sentence = (
         f"Q-ALU reaches a post-cost Sharpe of {s['qalu']['sharpe']:.3f} against "
         + ", ".join(f"{LABELS[a]} {s[a]['sharpe']:.3f}" for a in order if a != "qalu")
-        + (
-            "; the paired differences are not significant, and all four arms collapse "
-            "to a near-constant long position whose only measurable difference is fee drag"
-            if not confirmed
-            else "; the paired differences against "
-            + ", ".join(LABELS[b] for b in confirmed)
-            + " are positive with intervals excluding zero"
-        )
+        + tail
     )
 
     spread = max(s[a]["sharpe_std"] for a in order)
