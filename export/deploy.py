@@ -61,12 +61,31 @@ def _example(seq_len: int, n_features: int, batch: int = 1) -> torch.Tensor:
     return torch.randn(batch, seq_len, n_features, generator=g)
 
 
+class PositionOnly(nn.Module):
+    """Exported view of the model: one position per bar, no forecast tuple."""
+
+    def __init__(self, model: DeadbandSSM) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.model(x)
+        return out[0] if isinstance(out, tuple) else out
+
+
+def _positions(model: DeadbandSSM, x: torch.Tensor) -> np.ndarray:
+    model.eval()
+    with torch.no_grad():
+        out = model(x)
+    return (out[0] if isinstance(out, tuple) else out).numpy()
+
+
 def export_torchscript(model: DeadbandSSM, path: str | Path, seq_len: int, n_features: int) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     model.eval()
     with torch.no_grad():
-        traced = torch.jit.trace(model, _example(seq_len, n_features), strict=False)
+        traced = torch.jit.trace(PositionOnly(model), _example(seq_len, n_features), strict=False)
         traced = torch.jit.freeze(traced)  # folds the FIR kernel into constants
     traced.save(str(path))
     return path
@@ -77,7 +96,7 @@ def export_onnx(model: DeadbandSSM, path: str | Path, seq_len: int, n_features: 
     path.parent.mkdir(parents=True, exist_ok=True)
     model.eval()
     torch.onnx.export(
-        model,
+        PositionOnly(model),
         (_example(seq_len, n_features),),
         str(path),
         input_names=["features"],
@@ -174,9 +193,7 @@ def benchmark_artifact(
     onnx_path = export_onnx(model, out / "model.onnx", seq_len, n_features)
 
     x = _example(seq_len, n_features)
-    model.eval()
-    with torch.no_grad():
-        ref = model(x).numpy()
+    ref = _positions(model, x)
 
     ts_model = torch.jit.load(str(ts_path)).eval()
     with torch.no_grad():

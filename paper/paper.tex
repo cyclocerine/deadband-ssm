@@ -222,13 +222,24 @@ The two streams are summed, normalised, activated and projected residually:
 \QALU\!\left(\mathrm{LN}\left(\mathbf{A}^{l}+\mathbf{B}^{l}\right)\right).
 \label{eq:block}
 \end{equation}
-After $L$ blocks the terminal step $\mathbf{z}_T$ is read out. Two heads share
-this trunk: a bounded policy head
-$\pi_T=\tanh(\mathbf{w}_{\mathrm{pol}}^{\top}\mathbf{z}_T)\in[-1,1]$ and a
-linear forecast head $v_T=\mathbf{w}_{\mathrm{val}}^{\top}\mathbf{z}_T$ for the
-next-bar return. Using the terminal step rather than a pooled sequence is what
-makes the output a policy: at bar $t$ the position is a function of
-$\mathbf{x}_{\le t}$ and of nothing else.
+After $L$ blocks the terminal step $\mathbf{z}_T$ is read out. The trunk feeds
+two heads: a linear forecast head $v_T=\mathbf{w}_{\mathrm{val}}^{\top}
+\mathbf{z}_T$ for the next-bar return, and a bounded position head that reads
+\emph{that forecast} rather than a second projection of the trunk,
+\begin{equation}
+\pi_T=\tanh\!\left(g\,v_T\right)\in[-1,1],
+\label{eq:readout}
+\end{equation}
+with one learned scalar gain $g$ initialised at $1$. Reading the position from
+the forecast keeps the head a linear map followed by $\tanh$, but removes a
+degeneracy: a head with its own input has a flat direction, because any constant
+position scores the same as flat on a drift-free risk-adjusted objective, so it
+saturates and the network stops responding to its input. Tying the position to
+the forecast makes the activation act on the policy through one channel --- how
+well the trunk forecasts --- and the forecast loss anchors the scale of
+$v_T$. Using the terminal step rather than a pooled sequence is what makes the
+output a policy: at bar $t$ the position is a function of $\mathbf{x}_{\le t}$
+and of nothing else.
 
 \subsection{Objective}
 Let $a_t=\pi_t$ be the position decided at $t$, held over $t+1$, and $r_t$ the

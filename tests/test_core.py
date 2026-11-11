@@ -163,3 +163,23 @@ def test_loss_matches_closed_form() -> None:
     net = pos.numpy() * ret.numpy() - fee * turnover
     want = -net.mean() / (net.std() + 1e-6) * math.sqrt(105_120)
     assert abs(float(loss) - want) < 1e-4
+
+
+def test_derived_mode_ties_position_to_forecast() -> None:
+    """In derived mode the position must be a monotone readout of the forecast."""
+    torch.manual_seed(0)
+    model = DeadbandSSM(4, 32, 2, 8, 0.1, "qalu", mode="derived").eval()
+    x = torch.randn(6, 30, 4)
+    pos, forecast = model(x)
+    assert pos.shape == forecast.shape == (6,)
+    assert torch.all(pos.abs() <= 1.0)
+    assert torch.allclose(pos, torch.tanh(forecast), atol=1e-6)
+
+
+def test_derived_mode_position_responds_to_input() -> None:
+    """A free policy head can sit at a constant; the derived one cannot."""
+    torch.manual_seed(0)
+    model = DeadbandSSM(4, 32, 2, 8, 0.1, "qalu", mode="derived").eval()
+    with torch.no_grad():
+        pos, _ = model(torch.randn(64, 30, 4))
+    assert float(pos.detach().std()) > 1e-3

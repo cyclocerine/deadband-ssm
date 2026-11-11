@@ -122,7 +122,7 @@ def stage_export(args: argparse.Namespace, panel):
         d_state=cfg["d_state"],
         dropout=cfg["dropout"],
         act=meta["activation"],
-        mode="policy",
+        mode=cfg.get("mode", "policy"),
     )
     state = torch.load(ckpt, map_location="cpu")
     model.load_state_dict({k: v for k, v in state.items() if not k.startswith("head_value")}, strict=False)

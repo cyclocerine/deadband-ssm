@@ -63,7 +63,7 @@ class TrainConfig:
     grad_clip: float = 1.0
     fee_ratio: float = 5e-4
     patience: int = 3
-    mode: str = "both"
+    mode: str = "derived"
     sup_weight: float = 1.0
     use_conv: bool = True
     use_ssm: bool = True

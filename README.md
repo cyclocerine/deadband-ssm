@@ -54,15 +54,18 @@ X (B,T,4) --Linear--> Z (B,T,32)
        Stream B: diagonal linear SSM, h_t = a h_{t-1} + b x_t,  y_t = C h_t + D x_t
        Z = LayerNorm(A + B)
        Z = Z + W_out( Q-ALU(Z) )
-  -> LayerNorm -> terminal step -> policy head tanh(w.z) in [-1,1]
-                                -> forecast head  w.z
+  -> LayerNorm -> terminal step -> forecast head w.z
+                                -> position = tanh(g * w.z) in [-1,1]
 ```
 
 * Both streams are causal by construction; the recurrence is evaluated either
   as a linear scan or, for `T <= 64`, as a single grouped convolution with the
   exact closed-form impulse response `k_j = sum_n C_n a_n^j b_n`.
 * No self-attention, no `O(T^2)` term. Complexity is `O(T D N)` per layer.
-* 4458 parameters (Q-ALU) vs 4450 (ReLU).
+* 4427 parameters (Q-ALU) vs 4419 (ReLU). The position is read out from the
+  forecast through one learned gain, so what the network predicts and what it
+  trades cannot diverge; PROTOCOL.md, amendments 4 and 5, records why the
+  obvious alternative -- a free policy head -- collapses to a constant long.
 
 ## Deployment, measured
 

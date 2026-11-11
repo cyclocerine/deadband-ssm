@@ -83,9 +83,14 @@ class DeadbandSSM(nn.Module):
         act: one of ``qalu``, ``gelu``, ``swish``, ``relu``.
         mode: ``policy`` returns ``tanh``-bounded positions in ``[-1, 1]``;
             ``supervised`` returns an unbounded one-step return forecast;
-            ``both`` returns ``(position, forecast)`` from two heads on the
-            same trunk, which is what the benchmark trains (the forecast head
-            keeps the trunk from collapsing onto a constant long bias).
+            ``both`` returns ``(position, forecast)`` from two independent
+            heads on the same trunk; ``derived`` returns ``(tanh(f), f)``, i.e.
+            the position is a monotone readout of the forecast. ``derived`` is
+            what the benchmark trains: a free policy head has a flat direction
+            (any constant position scores the same on a drift-free Sharpe), so
+            it saturates to +1 and stops responding to the input, whereas tying
+            the position to the forecast anchors it to the size of the
+            predicted move.
     """
 
     def __init__(
@@ -102,7 +107,7 @@ class DeadbandSSM(nn.Module):
         use_ssm: bool = True,
     ) -> None:
         super().__init__()
-        if mode not in ("policy", "supervised", "both"):
+        if mode not in ("policy", "supervised", "both", "derived"):
             raise ValueError(f"unknown mode {mode!r}")
         self.mode = mode
         self.n_features = n_features
@@ -122,25 +127,42 @@ class DeadbandSSM(nn.Module):
             for i in range(n_layers)
         )
         self.norm_f = nn.LayerNorm(d_model)
-        self.head_policy = nn.Sequential(nn.Linear(d_model, 1), nn.Tanh())
         self.head_value = nn.Linear(d_model, 1)
-        head: nn.Module = self.head_policy
-        if mode == "supervised":
-            head = self.head_value
-        elif mode == "both":
-            head = nn.Identity()  # unused; forward returns both heads
+        # The free policy head is only built when it is actually trained; in
+        # ``derived`` mode the position is tanh of the forecast, so a separate
+        # head would be dead weight in the checkpoint and in the export.
+        self.head_policy: nn.Module | None = None
+        if mode in ("policy", "both"):
+            self.head_policy = nn.Sequential(nn.Linear(d_model, 1), nn.Tanh())
+        elif mode == "derived":
+            # Same shape as the policy head -- a linear map followed by tanh --
+            # but its input is the forecast, so the position is a monotone
+            # function of what the network predicts. The gain starts at one.
+            gain = nn.Linear(1, 1)
+            nn.init.ones_(gain.weight)
+            nn.init.zeros_(gain.bias)
+            self.head_policy = nn.Sequential(gain, nn.Tanh())
+        head: nn.Module = self.head_value
+        if mode == "policy":
+            head = self.head_policy  # type: ignore[assignment]
+        elif mode in ("both", "derived"):
+            head = nn.Identity()  # unused; forward returns both outputs
         self.head = head
 
     def forward(self, x: Tensor) -> Tensor | tuple[Tensor, Tensor]:
         """Args: ``x`` of shape ``(B, T, F)``.
 
         Returns ``(B,)`` for the single-head modes and ``(position, forecast)``
-        for ``mode="both"``.
+        for ``mode="both"`` and ``mode="derived"``.
         """
         h = self.in_proj(x)
         for block in self.blocks:
             h = block(h)
         h = self.norm_f(h)[:, -1, :]
+        if self.mode == "derived":
+            forecast = self.head_value(h).squeeze(-1)
+            assert self.head_policy is not None
+            return self.head_policy(forecast.unsqueeze(-1)).squeeze(-1), forecast
         if self.mode == "both":
             return self.head_policy(h).squeeze(-1), self.head_value(h).squeeze(-1)
         return self.head(h).squeeze(-1)

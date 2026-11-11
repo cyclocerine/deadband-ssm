@@ -148,3 +148,30 @@ The effect is that a constant long position earns zero before fees instead of
 the market's drift, so the objective can only be improved by timing. This is a
 design correction made before the grid whose results are reported, and it is
 recorded here rather than discovered after the fact.
+
+## Amendment 5 — the position is read out from the forecast (before the reported grid)
+
+Centring the target removed the drift but not the degeneracy. A free policy head
+has a flat direction: any constant position scores the same as flat on a
+drift-free batch Sharpe, so there is no gradient to move it and the head
+saturates. The GELU probe at the grid budget ended with exposure 1.000 and
+position standard deviation 0.0014 --- the head was pinned at $+1$ and the
+network was not using its input at all.
+
+The position is therefore a monotone readout of the forecast,
+
+```
+pos_t = tanh(g * f_t)
+```
+
+where `f_t` is the one-step forecast and `g` a single learned scalar gain
+initialised at one. The head keeps the specified shape --- a linear map followed
+by tanh --- but its input is the forecast instead of a second, independent
+projection of the trunk. A free head could decouple what the network predicts
+from what it trades, which is precisely the failure the pilot exhibited.
+
+Consequences, all intended: the forecast MSE anchors the scale of `f_t` (targets
+are standardised, so `f_t = O(1)`), the position cannot saturate without paying
+that MSE, and the activation now acts on the policy through one channel --- how
+well the trunk forecasts. The parameter count changes from 4458 to 4427 because
+the redundant second head is no longer built.
