@@ -80,7 +80,8 @@ This paper therefore contributes:
 \item \textbf{Deadband-SSM}, a \emph{causal} dual-stream sequence policy: a
 depthwise causal convolution with exponentially increasing dilation summed with
 a diagonal linear state-space recurrence, LayerNorm, Q-ALU, residual
-projection, terminal-step readout, and a bounded position head. The model is
+projection, and a terminal-step readout whose position $\pi_T=\tanh(g\,v_T)$ is
+derived from the forecast $v_T$ rather than from a free head. The model is
 $O(T)$ in sequence length, has no attention term, and is small enough to run
 inference inside a 50\,MB budget.
 \item An exact \emph{calculus} of Q-ALU, with closed-form gradient extrema
@@ -94,8 +95,10 @@ export to TorchScript/ONNX, and the measured latency and memory footprint of
 the exported model on commodity CPU hardware.
 \end{itemize}
 
-We report the result as measured, including the case in which the activation
-choice does not matter.
+We report the result as measured. Here the activation choice does matter, and it
+matters against Q-ALU: the arm is significantly worse than all three baselines,
+because most of its cells settle into a high-turnover limit cycle rather than a
+policy.
 
 \section{Related Work}
 
@@ -166,9 +169,9 @@ and at $v=-2$,
 \QALU'(-2\delta)=\gamma\left(1+e^{-2}\right)=1.1353\,\gamma ,
 \label{eq:negpeak}
 \end{equation}
-a $13.53\%$ gain overshoot above the small-negative asymptote $\gamma$. The
-second derivative changes sign at $v=-3$, so \eqref{eq:negpeak} is the global
-maximum of the negative branch.
+a $13.53\%$ gain overshoot above the small-negative asymptote $\gamma$
+(Fig.~\ref{fig:act}). The second derivative changes sign at $v=-3$, so
+\eqref{eq:negpeak} is the global maximum of the negative branch.
 
 \begin{proposition}[Gradient extrema]
 For $\alpha=\beta=\gamma=1$, $\delta=0.4$, the derivative of \eqref{eq:qalu}
@@ -188,7 +191,7 @@ The test suite asserts all three values to $10^{-3}$.
 Input features $\mathbf{X}\in\R^{B\times T\times F}$ are projected to width
 $D$, $\mathbf{Z}^{0}=\mathbf{X}\mathbf{W}_{\mathrm{in}}$,
 $\mathbf{W}_{\mathrm{in}}\in\R^{F\times D}$. Block $l$ computes two views of
-the same sequence.
+the same sequence (Fig.~\ref{fig:arch}).
 
 \emph{Stream A} is a depthwise causal convolution with kernel $k=3$, dilation
 $d_l=2^{l}$, left padding $(k-1)d_l$ and a slice to $T$:
@@ -201,7 +204,9 @@ so that $\mathbf{A}^l_t$ depends on $\mathbf{Z}^l_{\le t}$ only.
 With $\Delta_t=\mathrm{softplus}(\rho)$, $A=-\exp(\lambda)<0$ and zero-order
 hold discretisation,
 \begin{equation}
-\bar{a}=e^{\Delta A},\quad \bar{b}=\frac{\bar a-1}{A}\odot B,\quad
+\bar{a}=e^{\Delta A},\quad \bar{b}=\frac{\bar a-1}{A}\odot B ,
+\end{equation}
+\begin{equation}
 \mathbf{h}_t=\bar a\odot\mathbf{h}_{t-1}+\bar b\odot\mathbf{Z}^l_t,\quad
 \mathbf{y}_t=\mathbf{C}\mathbf{h}_t+\mathbf{D}\mathbf{Z}^l_t .
 \end{equation}
@@ -334,10 +339,13 @@ zero, the Wilcoxon $p<0.05$, and Diebold--Mariano does not favour $B$.
 \input{tables/results}
 
 \paragraph{Reading the table}
-Sharpe is annualised on the net stream after the 5\,bp fee. \emph{Active} is the
-same statistic on the difference against a fee-matched buy-and-hold, so a policy
-that simply holds the asset scores exactly $0.000$ there and the column isolates
-whatever the network adds. \emph{IC} is the Spearman rank correlation between the
+Sharpe is annualised on the net stream after the 5\,bp fee. \emph{IR} is the
+Sharpe of the active stream $r^{\mathrm{net}}-r^{\mathrm{BH}}$, where the
+benchmark holds the asset from the first test bar and pays the same entry fee; a
+policy that simply holds the asset scores exactly $0.000$ there. Because its
+denominator is tracking error rather than asset volatility, IR is large in
+magnitude whenever a policy tracks that exposure closely, so read it as a sign
+and a rough magnitude. \emph{IC} is the Spearman rank correlation between the
 forecast head and the next-bar return, a low-variance diagnostic that survives
 even when the policy head saturates. Turnover and exposure explain how the
 Sharpe was earned: the same mean return can come from a stable long position or
@@ -352,14 +360,13 @@ its positive branch peaks $9.98\%$ above the $2\alpha$ asymptote.}
 \label{fig:act}
 \end{figure}
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/equity.pdf}
-\caption{Stitched out-of-sample equity curves of the four candidates over the
-five walk-forward test blocks (log scale). The curves are the equal-weight
-ensemble of \nSeeds{} paired seeds.}
+\includegraphics[width=\columnwidth]{figures/equity.pdf}
+\caption{Stitched out-of-sample equity curves over the five walk-forward test
+blocks (log scale), the equal-weight ensemble of \nSeeds{} paired seeds.}
 \label{fig:equity}
-\end{figure*}
+\end{figure}
 
 \resultText
 
@@ -370,7 +377,7 @@ The sample is one instrument on one venue, and the models are deliberately
 small: the entire grid is trained on a single commodity CPU. A four-way
 comparison at this scale can detect a large effect and cannot detect a small
 one; the paired confidence intervals in Table~\ref{tab:results} are the honest
-statement of what the data supports, and a null result here is evidence about
+statement of what the data supports, and a negative result here is evidence about
 this protocol, not a proof that activations are irrelevant in general.
 
 \paragraph{Why the cost term matters}
@@ -390,12 +397,38 @@ bar. Which one a run lands in is decided early in training and is visible in the
 turnover column long before it is visible in the Sharpe. Reporting the mean over
 paired seeds without that spread would overstate the precision of the comparison.
 
+\paragraph{A limit cycle in one arm}
+The two failure modes are not evenly distributed, and in the Q-ALU arm they are
+not even continuous. \chatQalu{} of the \nCellsQalu{} Q-ALU cells sit in the
+chattering regime, at a turnover of at least \turnChatMinQalu{} per bar, and
+\nQuietQalu{} sit below $0.02$; no cell lands in between. The quiet cells average
+a post-cost Sharpe of \srQuietQalu, above the mean of every baseline in
+Table~\ref{tab:results}---which is what a reader looking for the activation's
+effect would want to see, and exactly what the protocol forbids us to select on.
+The chattering cells average \srChatQalu{} and pay \dragChatQalu{} of notional in
+fees per year, with the worst at \srQaluMin. The arm's mean of \srQalu{} is
+therefore an average over two behaviours rather than a location. The regime also
+tracks the fold more than the seed: in \nFoldSameQalu{} of the \nFolds{} folds
+both seeds land on the same side, and \nFoldChatQalu{} folds chatter under both.
+What this establishes is that the instability exists, is bimodal, and is
+expensive; it does not establish that the activation causes it. A turnover cap, a
+different budget, or a learning-rate change could remove the cycle without
+touching the activation, and that run has not been made. We report the arm as it
+behaved rather than the arm we would have preferred.
+
+Fig.~\ref{fig:equity} compounds the bar-by-bar ensemble of the two seeds rather
+than averaging per-cell Sharpes, and the two aggregations can disagree. They do
+for Swish: its ensemble stream has a volatility an order of magnitude below the
+other arms, because the two seeds cancel, so its Sharpe is large in magnitude
+while its cell mean is mild. The Q-ALU curve is the only one that reaches the
+floor.
+
 \paragraph{Deployment}
 The exported model is a pure feed-forward computation: a grouped convolution
 with a $T$-tap kernel, element-wise recurrence coefficients folded at export
 time, and two small linear maps. The ONNX artifact is \onnxKb\,KB. TorchScript
-and ONNX Runtime outputs agree with PyTorch to within \parity{} in maximum
-absolute deviation. On the reference machine (Intel Celeron N2930, no AVX)
+and ONNX Runtime outputs agree with PyTorch to within $\parity$ in maximum
+absolute deviation of the position. On the reference machine (Intel Celeron N2930, no AVX)
 single-bar inference takes \latencyTorch\,ms (p50) under TorchScript and
 \latencyOnnx\,ms (p50) under ONNX Runtime, and the incremental resident set of an
 isolated inference process is \rssOnnx\,MB, inside the 50\,MB budget. The budget

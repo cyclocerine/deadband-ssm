@@ -1,17 +1,21 @@
 \begin{table*}[t]
 \centering
-\caption{Out-of-sample results over 4 paired cells (2 folds $\times$ 1 seeds). Sharpe is annualised on the post-cost net stream; turnover is mean $|a_t-a_{t-1}|$ per bar. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}
+\caption{Out-of-sample results over 40 paired cells (5 folds $\times$ 2 seeds). Sharpe is annualised on the post-cost net stream; turnover is mean $|a_t-a_{t-1}|$ per bar. IR is the Sharpe of the active stream $r^{\mathrm{net}}-r^{\mathrm{BH}}$ against a buy-and-hold benchmark that pays the same entry fee; its denominator is tracking error, so it is large in magnitude whenever a policy tracks that exposure closely. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}
 \label{tab:results}
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{lrrrrrrrr}
 \toprule
-Activation & Sharpe & Active & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\
+Activation & Sharpe & IR & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\
 \midrule
-Q-ALU$^{\ast}$ & -25.470 $\pm$ 3.325 & +0.000 & +0.0000 & -826.1\% & -100.0\% & 0.1629 & 0.661 & 4458 \\
-ReLU & -49.620 $\pm$ 29.638 & +0.000 & +0.0000 & -1414.2\% & -100.0\% & 0.2739 & 0.569 & 4450 \\
+Q-ALU & -9.722 $\pm$ 6.889 & -8.755 & +0.0090 & -402.6\% & -83.9\% & 0.0814 & 0.895 & 4427 \\
+GELU & -0.632 $\pm$ 1.525 & -3.956 & +0.0122 & -27.2\% & -50.2\% & 0.0080 & 0.952 & 4419 \\
+Swish & -0.845 $\pm$ 1.435 & -4.268 & +0.0142 & -39.7\% & -54.0\% & 0.0081 & 0.950 & 4419 \\
+ReLU$^{\ast}$ & -0.530 $\pm$ 1.182 & -9.636 & +0.0112 & -27.4\% & -52.4\% & 0.0084 & 0.949 & 4419 \\
 \midrule
-\multicolumn{9}{l}{\footnotesize Q-ALU $-$ ReLU: $\Delta$Sharpe +24.150 [+5.543, +42.756], $p_{\mathrm{W}}=0.500$} \\
+\multicolumn{9}{l}{\footnotesize Q-ALU $-$ GELU: $\Delta$Sharpe -9.090 [-12.434, -5.520], $p_{\mathrm{W}}=0.004^{\dagger}$} \\
+\multicolumn{9}{l}{\footnotesize Q-ALU $-$ Swish: $\Delta$Sharpe -8.877 [-12.416, -5.113], $p_{\mathrm{W}}=0.014^{\dagger}$} \\
+\multicolumn{9}{l}{\footnotesize Q-ALU $-$ ReLU: $\Delta$Sharpe -9.192 [-13.204, -4.946], $p_{\mathrm{W}}=0.027^{\dagger}$} \\
 \bottomrule
 \end{tabular}
 \end{table*}

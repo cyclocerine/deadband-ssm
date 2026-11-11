@@ -89,7 +89,7 @@ def fig_activation(path: str | Path, alpha: float = 1.0, beta: float = 1.0, gamm
 def fig_equity(out_dir: str | Path, path: str | Path) -> Path:
     """Stitched walk-forward OOS equity curves, one per activation."""
     _style()
-    fig, ax = plt.subplots(figsize=(DCOL_W, 2.2))
+    fig, ax = plt.subplots(figsize=(COL_W, 2.05))
     for act in ACTIVATIONS:
         try:
             s = stitch(out_dir, act)
@@ -100,9 +100,10 @@ def fig_equity(out_dir: str | Path, path: str | Path) -> Path:
         t = np.arange(len(equity)) / 105_120.0  # years of 5-minute bars
         ax.plot(t, equity, lw=1.0 if act != "qalu" else 1.5, color=COLORS[act], label=LABELS[act])
     ax.set_yscale("log")
-    ax.set_xlabel("out-of-sample years (5-minute bars, stitched folds)")
+    ax.set_xlabel("out-of-sample years (stitched folds)")
     ax.set_ylabel("equity (log scale)")
-    ax.legend(frameon=False, ncol=4, loc="upper left")
+    ax.legend(frameon=False, ncol=2, loc="lower left", fontsize=6.0,
+              handlelength=1.4, columnspacing=0.9)
     ax.grid(alpha=0.15, lw=0.4)
     fig.tight_layout(pad=0.3)
     out = Path(path)
