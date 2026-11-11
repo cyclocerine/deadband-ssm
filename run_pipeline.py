@@ -79,7 +79,14 @@ def stage_bench(args: argparse.Namespace, panel):
 
 
 def stage_analysis(args: argparse.Namespace):
-    from analysis.report import analyse, ascii_report, latex_macros, latex_table, load_cells
+    from analysis.report import (
+    analyse,
+    ascii_report,
+    latex_macros,
+    latex_table,
+    load_cells,
+    readme_block,
+)
 
     _banner("analysis")
     cells = load_cells(args.out)
@@ -89,8 +96,41 @@ def stage_analysis(args: argparse.Namespace):
     deploy_path = ROOT / "export" / "report.json"
     deploy = json.loads(deploy_path.read_text()) if deploy_path.exists() else None
     latex_macros(analysis, ROOT / "paper" / "macros.tex", deploy)
+    readme_block(analysis, ROOT / "README.md")
     print(f"\nLaTeX table -> paper/tables/results.tex ({len(tex)} chars)")
     print("LaTeX macros -> paper/macros.tex")
+    print("README block -> README.md")
+    return analysis
+
+
+def stage_macros(args: argparse.Namespace):
+    """Re-render the LaTeX table and macros from the cached analysis JSON.
+
+    Editing prose in the report means editing strings, not re-running 40k
+    bootstrap resamples on a 100k-bar stream, which costs minutes on a slow CPU.
+    """
+    from analysis.report import (
+        latex_macros,
+        latex_table,
+        readme_block,
+        readme_deploy_block,
+    )
+
+    _banner("macros")
+    path = ROOT / args.out / "analysis.json"
+    if not path.exists():
+        raise SystemExit(f"{path} not found; run --stage analysis first")
+    analysis = json.loads(path.read_text())
+    latex_table(analysis, ROOT / "paper" / "tables" / "results.tex")
+    deploy_path = ROOT / "export" / "report.json"
+    deploy = json.loads(deploy_path.read_text()) if deploy_path.exists() else None
+    latex_macros(analysis, ROOT / "paper" / "macros.tex", deploy)
+    readme_block(analysis, ROOT / "README.md")
+    if deploy:
+        readme_deploy_block(deploy, ROOT / "README.md")
+    print("LaTeX table -> paper/tables/results.tex")
+    print("LaTeX macros -> paper/macros.tex")
+    print("README block -> README.md")
     return analysis
 
 
@@ -129,13 +169,21 @@ def stage_export(args: argparse.Namespace, panel):
     model.eval()
     report = benchmark_artifact(model, ROOT / "export", args.seq_len, panel.features.shape[1])
     (ROOT / "export" / "report.json").write_text(json.dumps(report.to_dict(), indent=2))
+    from analysis.report import readme_deploy_block
+
+    readme_deploy_block(report.to_dict(), ROOT / "README.md")
     print(json.dumps(report.to_dict(), indent=2))
     return report
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--stage", default="all", choices=["all", "data", "bench", "analysis", "figures", "export"])
+    ap.add_argument(
+        "--stage",
+        default="all",
+        choices=["all", "data", "bench", "analysis", "macros", "figures", "export"],
+        help="'macros' re-renders tables/macros from results/analysis.json without re-bootstrapping",
+    )
     ap.add_argument("--start", default="2020-01-01")
     ap.add_argument("--end", default=None)
     ap.add_argument("--symbol", default="BTCUSDT")
@@ -168,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
     analysis = None
     if args.stage in ("all", "analysis"):
         analysis = stage_analysis(args)
+    elif args.stage == "macros":
+        analysis = stage_macros(args)
     if args.stage in ("all", "figures") or (args.stage == "analysis" and args.figures):
         from analysis.report import load_cells
 

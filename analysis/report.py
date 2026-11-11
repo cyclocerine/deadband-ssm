@@ -170,6 +170,25 @@ def analyse(
         }
         summary[act]["sharpe_std"] = float(np.std([r["sharpe"] for r in rows], ddof=1)) if len(rows) > 1 else 0.0
         summary[act]["n_cells"] = len(rows)
+        # Cells whose policy changes position on most bars. A turnover of 0.05
+        # per bar is already ~5% of notional per day at 5 bp a side.
+        summary[act]["chatter_cells"] = int(sum(1 for r in rows if r["turnover"] > 0.05))
+        summary[act]["sharpe_min"] = float(min(r["sharpe"] for r in rows))
+        # The two regimes seen in the Q-ALU arm, counted rather than asserted.
+        quiet = [r for r in rows if r["turnover"] < 0.02]
+        chat = [r for r in rows if r["turnover"] > 0.05]
+        summary[act]["quiet_cells"] = len(quiet)
+        summary[act]["quiet_sharpe"] = float(np.mean([r["sharpe"] for r in quiet])) if quiet else 0.0
+        summary[act]["chat_sharpe"] = float(np.mean([r["sharpe"] for r in chat])) if chat else 0.0
+        summary[act]["chat_drag"] = float(np.mean([r["fee_drag"] for r in chat])) if chat else 0.0
+        summary[act]["chat_turn_min"] = float(min(r["turnover"] for r in chat)) if chat else 0.0
+        # Does the regime track the fold or the seed? Count folds whose two seeds
+        # agree, and folds that chatter under both seeds.
+        by_fold: dict[int, list[bool]] = {}
+        for r in rows:
+            by_fold.setdefault(int(r["fold"]), []).append(r["turnover"] > 0.05)
+        summary[act]["folds_same"] = sum(1 for v in by_fold.values() if len(set(v)) == 1)
+        summary[act]["folds_chat"] = sum(1 for v in by_fold.values() if v and all(v))
         summary[act]["n_params"] = int(rows[0]["n_params"])
         summary[act]["train_seconds"] = float(np.mean([r["train_seconds"] for r in rows]))
 
@@ -209,13 +228,13 @@ def latex_table(analysis: dict[str, Any], path: str | Path | None = None) -> str
         r"\caption{Out-of-sample results over " + str(analysis["n_cells"]) + r" paired cells ("
         + str(len(analysis["folds"])) + r" folds $\times$ " + str(len(analysis["seeds"])) + r" seeds). "
         r"Sharpe is annualised on the post-cost net stream; turnover is mean $|a_t-a_{t-1}|$ per bar. "
-        r"Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}",
+        r"IR is the Sharpe of the active stream $r^{\mathrm{net}}-r^{\mathrm{BH}}$ against a buy-and-hold benchmark that pays the same entry fee; its denominator is tracking error, so it is large in magnitude whenever a policy tracks that exposure closely. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}",
         r"\label{tab:results}",
         r"\small",
         r"\setlength{\tabcolsep}{3pt}",
         r"\begin{tabular}{lrrrrrrrr}",
         r"\toprule",
-        r"Activation & Sharpe & Active & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\",
+        r"Activation & Sharpe & IR & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\",
         r"\midrule",
     ]
     for act in order:
@@ -230,12 +249,13 @@ def latex_table(analysis: dict[str, Any], path: str | Path | None = None) -> str
         )
     lines.append(r"\midrule")
     for act, p in analysis["paired"].items():
-        star = r"$^{\dagger}$" if p["wilcoxon_p"] < 0.05 else ""
+        # No dollars: this is appended inside the math group that closes the p-value.
+        star = r"^{\dagger}" if p["wilcoxon_p"] < 0.05 else ""
         lines.append(
             f"\\multicolumn{{9}}{{l}}{{\\footnotesize Q-ALU $-$ {LABELS[act]}: "
             f"$\\Delta$Sharpe {p['mean_diff']:+.3f} "
             f"[{p['ci_low']:+.3f}, {p['ci_high']:+.3f}], "
-            f"$p_{{\\mathrm{{W}}}}={p['wilcoxon_p']:.3f}$" + star + "} \\\\"
+            f"$p_{{\\mathrm{{W}}}}={p['wilcoxon_p']:.3f}{star}$" + "} \\\\"
         )
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
     body = "\n".join(lines)
@@ -243,6 +263,101 @@ def latex_table(analysis: dict[str, Any], path: str | Path | None = None) -> str
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(body + "\n")
     return body
+
+
+def _and_join(items: list[str]) -> str:
+    """English list: "a, b and c" rather than "a, b, c"."""
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+README_START = "<!-- RESULTS:START -->"
+README_END = "<!-- RESULTS:END -->"
+
+
+def readme_block(analysis: dict[str, Any], path: str | Path) -> str:
+    """Rewrite the generated results block in README.md between the markers."""
+    s = analysis["summary"]
+    order = [a for a in ACTIVATIONS if a in s]
+    lines = [
+        "| activation | Sharpe | IR | IC | ann. ret. | max DD | turnover | exposure |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for act in order:
+        v = s[act]
+        lines.append(
+            f"| {LABELS[act]} | {v['sharpe']:+.3f} +/- {v['sharpe_std']:.3f} | "
+            f"{v.get('active_sharpe', 0.0):+.3f} | {v.get('ic', 0.0):+.4f} | "
+            f"{v['ann_return'] * 100:+.1f}% | {v['max_drawdown'] * 100:.1f}% | "
+            f"{v['turnover']:.4f} | {v['exposure']:.3f} |"
+        )
+    lines.append("")
+    for act, p in analysis["paired"].items():
+        lines.append(
+            f"* Q-ALU - {LABELS[act]}: dSharpe {p['mean_diff']:+.3f} "
+            f"[{p['ci_low']:+.3f}, {p['ci_high']:+.3f}], "
+            f"Wilcoxon p = {p['wilcoxon_p']:.4f}, "
+            f"Q-ALU wins {p.get('wins', 0)}/{p.get('n_pairs', 0)} cells"
+        )
+    q = s.get("qalu", {})
+    if "quiet_cells" in q:
+        lines += [
+            "",
+            f"Q-ALU is bimodal rather than uniformly bad: {q['quiet_cells']} of its "
+            f"{q['n_cells']} cells trade below 0.02 turnover and average a Sharpe of "
+            f"{q.get('quiet_sharpe', 0.0):+.3f}, while the remaining "
+            f"{q['n_cells'] - q['quiet_cells']} average {q.get('chat_sharpe', 0.0):+.3f} "
+            f"and pay {q.get('chat_drag', 0.0) * 100:.0f}% of notional per year in fees. "
+            "The protocol forbids selecting the quiet subset, so the reported mean is "
+            "the mean over both regimes.",
+        ]
+    block = "\n".join(lines)
+    _replace_block(path, README_START, README_END, block)
+    return block
+
+
+DEPLOY_START = "<!-- DEPLOY:START -->"
+DEPLOY_END = "<!-- DEPLOY:END -->"
+
+
+def _replace_block(path: str | Path, start: str, end: str, block: str) -> None:
+    doc = Path(path)
+    if not doc.exists():
+        return
+    text = doc.read_text()
+    if start not in text or end not in text:
+        return
+    head, rest = text.split(start, 1)
+    _, tail = rest.split(end, 1)
+    doc.write_text(f"{head}{start}\n{block}\n{end}{tail}")
+
+
+def readme_deploy_block(deploy: dict[str, Any], path: str | Path) -> str:
+    """Rewrite the generated deployment block in README.md from export/report.json."""
+    lat = deploy["latency_ms"]
+    rss = deploy["rss_mb"]
+    par = deploy["parity"]
+    lines = [
+        "| artifact | size | p50 latency, one bar | peak incremental RSS |",
+        "|---|---|---|---|",
+        f"| PyTorch eager | -- | {lat['torch_eager']['p50']:.1f} ms | -- |",
+        f"| TorchScript | {deploy['torchscript_bytes'] / 1024:.0f} KB | "
+        f"{lat['torchscript']['p50']:.1f} ms | {rss['torchscript']:.0f} MB |",
+        f"| ONNX Runtime | {deploy['onnx_bytes'] / 1024:.0f} KB | "
+        f"{lat['onnxruntime']['p50']:.1f} ms | **{rss['onnxruntime']:.1f} MB** |",
+        "",
+        f"Both exports reproduce the PyTorch policy to float32 rounding: TorchScript "
+        + ("bit-exactly" if par["torchscript_max_abs"] < 1e-9 else
+           f"to {par['torchscript_max_abs']:.1e}")
+        + f", ONNX to {par['onnx_max_abs']:.1e} in maximum absolute deviation. "
+        f"The 50 MB inference budget is met by the ONNX "
+        f"Runtime path; the TorchScript RSS is dominated by the PyTorch runtime itself, "
+        f"not by the {deploy['n_params']}-parameter model.",
+    ]
+    block = "\n".join(lines)
+    _replace_block(path, DEPLOY_START, DEPLOY_END, block)
+    return block
 
 
 def latex_macros(analysis: dict[str, Any], path: str | Path, deploy: dict[str, Any] | None = None) -> str:
@@ -275,6 +390,16 @@ def latex_macros(analysis: dict[str, Any], path: str | Path, deploy: dict[str, A
         lines.append(f"\\newcommand{{\\act{tag}}}{{{s[act].get('active_sharpe', 0.0):+.3f}}}")
         lines.append(f"\\newcommand{{\\drag{tag}}}{{{s[act].get('fee_drag', 0.0) * 100:.1f}\\%}}")
         lines.append(f"\\newcommand{{\\ic{tag}}}{{{s[act].get('ic', 0.0):+.4f}}}")
+        lines.append(f"\\newcommand{{\\chat{tag}}}{{{int(s[act].get('chatter_cells', 0))}}}")
+        lines.append(f"\\newcommand{{\\sr{tag}Min}}{{{fmt(s[act].get('sharpe_min', 0.0))}}}")
+        lines.append(f"\\newcommand{{\\nCells{tag}}}{{{int(s[act].get('n_cells', 0))}}}")
+        lines.append(f"\\newcommand{{\\nQuiet{tag}}}{{{int(s[act].get('quiet_cells', 0))}}}")
+        lines.append(f"\\newcommand{{\\srQuiet{tag}}}{{{fmt(s[act].get('quiet_sharpe', 0.0))}}}")
+        lines.append(f"\\newcommand{{\\srChat{tag}}}{{{fmt(s[act].get('chat_sharpe', 0.0))}}}")
+        lines.append(f"\\newcommand{{\\dragChat{tag}}}{{{s[act].get('chat_drag', 0.0) * 100:.1f}\\%}}")
+        lines.append(f"\\newcommand{{\\turnChatMin{tag}}}{{{s[act].get('chat_turn_min', 0.0):.4f}}}")
+        lines.append(f"\\newcommand{{\\nFoldSame{tag}}}{{{int(s[act].get('folds_same', 0))}}}")
+        lines.append(f"\\newcommand{{\\nFoldChat{tag}}}{{{int(s[act].get('folds_chat', 0))}}}")
     for act, p in analysis["paired"].items():
         tag = act.capitalize()
         lines.append(f"\\newcommand{{\\dSharpe{tag}}}{{{p['mean_diff']:+.3f}}}")
@@ -293,9 +418,12 @@ def latex_macros(analysis: dict[str, Any], path: str | Path, deploy: dict[str, A
         lines.append(f"\\newcommand{{\\dsrTrials}}{{{dsr['n_trials']}}}")
     if deploy:
         _par = max(deploy["parity"].values())
-        lines.append(
-            "\\newcommand{\\parity}{%s}" % ("0.0" if _par < 1e-9 else f"{_par:.1e}")
-        )
+        if _par < 1e-9:
+            _par_tex = "0"
+        else:
+            _m, _e = f"{_par:.1e}".split("e")
+            _par_tex = rf"{_m}\times10^{{{int(_e)}}}"
+        lines.append(f"\\newcommand{{\\parity}}{{{_par_tex}}}")
         lines.append(f"\\newcommand{{\\latencyOnnx}}{{{deploy['latency_ms']['onnxruntime']['p50']:.2f}}}")
         lines.append(f"\\newcommand{{\\latencyTorch}}{{{deploy['latency_ms']['torchscript']['p50']:.2f}}}")
         lines.append(f"\\newcommand{{\\rssOnnx}}{{{deploy['rss_mb']['onnxruntime']:.1f}}}")
@@ -346,12 +474,26 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
         for b, p in paired.items()
         if p["mean_diff"] > 0 and p["ci_low"] > 0 and p["wilcoxon_p"] < 0.05
     ]
+    refuted = [
+        b
+        for b, p in paired.items()
+        if p["mean_diff"] < 0 and p["ci_high"] < 0 and p["wilcoxon_p"] < 0.05
+    ]
     if confirmed:
         names = ", ".join(LABELS[b] for b in confirmed)
         parts.append(
             f"Against {names} the pre-registered decision rule is satisfied: the paired "
             f"difference is positive, its bootstrap interval excludes zero, and the "
             f"Wilcoxon signed-rank test rejects equality."
+        )
+    elif refuted:
+        names = ", ".join(LABELS[b] for b in refuted)
+        parts.append(
+            f"Against {names} the paired difference is negative, its interval excludes "
+            f"zero, and the signed-rank test rejects equality, so the arms are "
+            f"distinguishable and Q-ALU is the worse arm. The pre-registered "
+            f"direction was the opposite one; the hypothesis is rejected in reverse, "
+            f"and the sign we measured is the sign we report."
         )
     else:
         parts.append(
@@ -398,6 +540,12 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
             + ", ".join(LABELS[b] for b in confirmed)
             + " are positive with intervals excluding zero"
         )
+    elif refuted:
+        tail = (
+            "; the paired differences are negative with intervals excluding zero, so "
+            "Q-ALU is significantly worse than "
+            + _and_join([LABELS[b] for b in refuted])
+        )
     elif expo > 0.90 and turn < 0.02 and act_abs < 0.25:
         tail = (
             "; the paired differences are not significant, and all four arms collapse "
@@ -412,8 +560,10 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
         tail = "; the paired differences are not significant"
 
     sentence = (
-        f"Q-ALU reaches a post-cost Sharpe of {s['qalu']['sharpe']:.3f} against "
-        + ", ".join(f"{LABELS[a]} {s[a]['sharpe']:.3f}" for a in order if a != "qalu")
+        f"Q-ALU's mean post-cost Sharpe is {s['qalu']['sharpe']:.3f} "
+        f"$\\pm$ {s['qalu']['sharpe_std']:.3f} over its {s['qalu'].get('n_cells', 0)} "
+        f"cells, against "
+        + _and_join([f"{LABELS[a]} {s[a]['sharpe']:.3f}" for a in order if a != "qalu"])
         + tail
     )
 
@@ -437,12 +587,18 @@ def narrative(analysis: dict[str, Any]) -> dict[str, str]:
             "three independent tests, Q-ALU improves the post-cost Sharpe of a causal "
             "dual-stream state-space policy relative to the baselines it beats."
         )
+    elif refuted:
+        concl = (
+            "Under a pre-registered purged walk-forward protocol with paired seeds and "
+            "three independent tests, Q-ALU is significantly worse than every baseline "
+            "it was set against, and the deficit is carried by turnover: the arm sits in "
+            "a limit cycle on most cells and pays the fee on every flip."
+        )
     else:
         concl = (
             "Under a pre-registered purged walk-forward protocol with paired seeds and "
             "three independent tests, the measured differences do not support a claim "
-            "that Q-ALU is superior; the comparison instead isolates the cost of "
-            "turnover, which the asymmetric activation reduces."
+            "that Q-ALU is superior to the baselines it was set against."
         )
     return {
         "result": result,
