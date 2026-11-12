@@ -184,6 +184,38 @@ switch -- only that picking a luckier seed is not a fix.
 python -m analysis.fold_scan --dir results/raw   # per-fold turnover and Sharpe
 ```
 
+### A fee surcharge is not the fix
+
+`analysis/surcharge.py` retrains with a fee charged inside the loss only, so the
+metrics keep the true 5 bp. At 10x, matched on activation and fold (seed 0):
+
+| act | fold | turnover raw -> 10x | Sharpe raw -> 10x |
+|---|---|---|---|
+| Q-ALU | 0 | 0.0100 -> 0.0006 | +0.09 -> -1.20 |
+| Q-ALU | 1 | 0.0042 -> 0.0005 | +1.70 -> -2.25 |
+| Q-ALU | 2 | 0.1146 -> 0.1055 | -12.59 -> -10.49 |
+| Q-ALU | 3 | 0.1154 -> 0.1137 | -14.25 -> -13.33 |
+| Q-ALU | 4 | 0.1127 -> 0.1128 | -13.50 -> -15.16 |
+| GELU | 0 | 0.0079 -> 0.0009 | +0.44 -> -1.22 |
+| GELU | 1 | 0.0064 -> 0.0008 | +1.44 -> -2.28 |
+| GELU | 2 | 0.0069 -> 0.0009 | +0.95 -> -1.66 |
+| GELU | 3 | 0.0059 -> 0.1261 | -0.98 -> -14.66 |
+| GELU | 4 | 0.0055 -> 0.1240 | -1.03 -> -16.39 |
+
+Neither outcome helps. On the early folds the policy stops changing position
+(turnover 0.006 -> 0.0008 at exposure 0.99): with no timing edge the cheapest way
+to satisfy a 10x fee is to hold one position forever, and that loses the only
+positive Sharpes in the table. On the later folds it chatters exactly as before.
+GELU, quiet at the true fee in every fold, picks up the chattering regime at
+folds 3-4 under the surcharge -- the intervention spreads the failure instead of
+removing it.
+
+The training history says why better selection cannot rescue these cells: on the
+chattering folds the validation Sharpe is already -15 to -17 at every epoch and
+the selected epoch wins by 0.003, so the model is not fooling the validation
+window -- it cannot find a quiet policy on that slice, where the loss sits an
+order of magnitude higher than on the quiet folds (81 vs 7).
+
 ## Cross-timeframe sweep
 
 A second grid asks whether the ordering of the four activations is a 5-minute
