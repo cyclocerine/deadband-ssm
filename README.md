@@ -216,6 +216,24 @@ the selected epoch wins by 0.003, so the model is not fooling the validation
 window -- it cannot find a quiet policy on that slice, where the loss sits an
 order of magnitude higher than on the quiet folds (81 vs 7).
 
+### The objective weight is the knob that matters
+
+The total training loss is `DSR + sup_weight * MSE(forecast)`, and `sup_weight`
+was fixed at 1.0 before the grid ran. Retraining only the two folds where the
+chattering regime lives (3 and 4, seed 0) moves it directly:
+
+| sup_weight | Q-ALU turnover | Q-ALU Sharpe | GELU turnover | GELU Sharpe |
+|---|---|---|---|---|
+| 1 (protocol) | 0.1141 | -13.88 | 0.0057 | -1.01 |
+| 5 | 0.0090 | -1.31 | 0.0113 | -1.95 |
+| 20 | 0.0166 | -3.02 | 0.0191 | -3.39 |
+
+At 5 the Q-ALU limit cycle is gone: turnover falls to GELU's own level and the
+mean Sharpe over the two folds goes from -13.88 to -1.31. It is a trade, not a
+free win -- GELU loses about a Sharpe point and doubles its turnover -- and 20
+overshoots, which is why the curve is not monotone. The differential-Sharpe term
+is what buys the chattering; the supervised term is what stops it.
+
 ## Cross-timeframe sweep
 
 A second grid asks whether the ordering of the four activations is a 5-minute
