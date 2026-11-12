@@ -448,7 +448,7 @@ regenerate every number here,
 \begin{lstlisting}[language=bash, breaklines=true, numbers=none,
                    basicstyle=\ttfamily\scriptsize, aboveskip=2pt, belowskip=2pt]
 python run_pipeline.py --stage data
-python run_pipeline.py --stage bench --folds 5 --seeds 0 1
+python run_pipeline.py --stage bench --seeds 0 1
 python run_pipeline.py --stage analysis --boot 1000
 python run_pipeline.py --stage macros
 \end{lstlisting}
@@ -472,25 +472,27 @@ against the closed form $\gamma(1+e^{-2})$.
 \begin{lstlisting}[caption={Inference for one bar, ONNX Runtime, no PyTorch.},
                    label={lst:infer}]
 import numpy as np, onnxruntime as ort
-sess = ort.InferenceSession("export/model.onnx",
-                            providers=["CPUExecutionProvider"])
-x = np.zeros((1, 30, 4), dtype=np.float32)   # (B, T, F), standardised
-x[0] = window                               # 30 bars x 4 features
-pos = sess.run(None, {sess.get_inputs()[0].name: x})[0]
-# pos is pi_T = tanh(g * v_T); size the order as pos * capital
+sess = ort.InferenceSession(
+    "export/model.onnx",
+    providers=["CPUExecutionProvider"])
+x = np.zeros((1, 30, 4), dtype=np.float32)  # B, T, F
+x[0] = window               # 30 standardised bars
+name = sess.get_inputs()[0].name
+pos = sess.run(None, {name: x})[0]
+# pos is pi_T = tanh(g*v_T); size order = pos * capital
 \end{lstlisting}
 
-\begin{lstlisting}[caption={Q-ALU derivative in CUDA. The branch is on the sign of
-$x$, not of $f$: a saturated exponential multiplied by a saturated
-$\tanh$ is $0\cdot\infty$.},
+\begin{lstlisting}[caption={Q-ALU derivative in CUDA. The branch is on the sign
+of $x$, not of $f$: a saturated exponential times a saturated $\tanh$ is
+$0\cdot\infty$.},
                    label={lst:kernel}, language=C]
 __device__ float qalu_grad(float x, Params p) {
-    if (x >= 0.0f) {
-        float t = tanhf(x / p.beta);
-        return p.alpha * ((1.0f + t) + (x / p.beta) * (1.0f - t * t));
-    }
-    return -p.gamma * (expm1f(x / p.delta)
-                       + (x / p.delta) * expf(x / p.delta));
+  if (x >= 0.0f) {
+    float t = tanhf(x / p.beta), u = x / p.beta;
+    return p.alpha*((1.0f+t) + u*(1.0f-t*t));
+  }
+  float v = x / p.delta;
+  return -p.gamma * (expm1f(v) + v * expf(v));
 }
 \end{lstlisting}
 
