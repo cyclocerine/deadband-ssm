@@ -17,6 +17,7 @@ metrics/     differential-Sharpe objective, post-cost performance metrics
 benchmark/   purged walk-forward cross-validation engine
 analysis/    paired tests, Diebold-Mariano, deflated Sharpe, figures, LaTeX
 export/      TorchScript + ONNX export, latency and RSS measurement
+examples/    runnable quickstart, numpy Q-ALU reference, CUDA kernel
 paper/       IEEE 2-column paper, TikZ architecture, generated tables/macros
 tests/       causality, scan/FIR equivalence, Q-ALU calculus, purging
 ```
@@ -77,12 +78,31 @@ Numbers below come from `export/report.json`, produced by
 <!-- DEPLOY:START -->
 | artifact | size | p50 latency, one bar | peak incremental RSS |
 |---|---|---|---|
-| PyTorch eager | -- | 18.9 ms | -- |
-| TorchScript | 43 KB | 8.2 ms | 229 MB |
-| ONNX Runtime | 158 KB | 5.0 ms | **37.1 MB** |
+| PyTorch eager | -- | 19.6 ms | -- |
+| TorchScript | 43 KB | 8.5 ms | 229 MB |
+| ONNX Runtime | 158 KB | 5.1 ms | **37.1 MB** |
 
-Both exports reproduce the PyTorch policy to float32 rounding: TorchScript bit-exactly, ONNX to 1.2e-07 in maximum absolute deviation. The 50 MB inference budget is met by the ONNX Runtime path; the TorchScript RSS is dominated by the PyTorch runtime itself, not by the 4427-parameter model.
+Both exports reproduce the PyTorch policy to float32 rounding: TorchScript bit-exactly, ONNX to 6.0e-08 in maximum absolute deviation. The 50 MB inference budget is met by the ONNX Runtime path; the TorchScript RSS is dominated by the PyTorch runtime itself, not by the 4427-parameter model.
 <!-- DEPLOY:END -->
+
+## Examples
+
+Three runnable pieces, each with its captured output in
+[`examples/README.md`](examples/README.md):
+
+```bash
+python examples/quickstart.py --onnx export/model.onnx   # one real bar, end to end
+python examples/qalu_reference.py --check                # numpy Q-ALU vs the module
+nvcc -O3 -arch=sm_60 -o qalu_kernel examples/qalu_kernel.cu && ./qalu_kernel
+```
+
+`quickstart.py` rebuilds fold 0 with the benchmark's own splitter, refits the
+standardizer on the training slice, and prints the forecast and position next to
+the values recorded in the cell's `.npz` artifact; the two agree to float32
+rounding. `qalu_kernel.cu` is the activation as a CUDA kernel -- its arithmetic
+is checked against the numpy reference, but the kernel itself has not been run:
+the reference machine has no CUDA device, and the README does not quote a
+bandwidth number it did not measure.
 
 ## Protocol in one paragraph
 
@@ -136,7 +156,8 @@ pytest -q
 The suite checks that (i) no output at step `t` depends on inputs after `t`,
 (ii) the FIR, loop and scan forms of the SSM agree, (iii) Q-ALU's calculus
 matches Proposition 1 (including the exact `1 + e^-2 = 1.1353` overshoot), and
-(iv) the splitter's purge gaps are respected.
+(iv) the splitter's purge gaps are respected, and (v) the numpy Q-ALU in
+`examples/` still matches the module the benchmark trains with.
 
 ## Citation
 
@@ -145,7 +166,7 @@ matches Proposition 1 (including the exact `1 + e^-2 = 1.1353` overshoot), and
   author      = {Mutaqin, Faiq Hammam},
   title       = {Deadband-SSM: A Causal Dual-Stream State-Space Policy Network
                  with Q-ALU Activations for Cost-Aware Bitcoin Timing},
-  institution = {Cyclocerine Research Initiative},
+  institution = {Independent Researcher},
   year        = {2026}
 }
 ```

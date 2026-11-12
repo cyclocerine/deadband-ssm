@@ -165,7 +165,12 @@ def stage_export(args: argparse.Namespace, panel):
         mode=cfg.get("mode", "policy"),
     )
     state = torch.load(ckpt, map_location="cpu")
-    model.load_state_dict({k: v for k, v in state.items() if not k.startswith("head_value")}, strict=False)
+    # Load every tensor. An earlier version filtered out the ``head_value``
+    # weights and loaded with strict=False, which in derived mode silently
+    # discarded the forecast head -- the exported artifact was then a model with
+    # a randomly initialised readout, and its parity check passed only because
+    # it compared that same broken model against itself.
+    model.load_state_dict(state, strict=True)
     model.eval()
     report = benchmark_artifact(model, ROOT / "export", args.seq_len, panel.features.shape[1])
     (ROOT / "export" / "report.json").write_text(json.dumps(report.to_dict(), indent=2))
