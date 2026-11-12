@@ -21,7 +21,7 @@
 
 % ---------------- block ----------------
 \node[stream, below=9mm of x, xshift=-30mm] (conv)
-  {Stream A: depthwise causal Conv1d\\[-1pt]{\scriptsize $k{=}3$, dil $2^{i}$, pad $(k{-}1)2^{i}$, slice $[:T]$}};
+  {Stream A: depthwise causal Conv1d\\[-1pt]{\scriptsize $k{=}3$, dil $2^{\ell}$, pad $(k{-}1)2^{\ell}$, slice $[:T]$}};
 \node[stream, below=9mm of x, xshift=30mm] (ssm)
   {Stream B: linear recurrence\\[-1pt]{\scriptsize $h_t{=}\bar a\,h_{t-1}{+}\bar b\,x_t$, \ $y_t{=}\mathbf{C}h_t{+}\mathbf{D}x_t$}};
 % The sum sits under the two streams, not under the input: the stream boxes are
@@ -51,10 +51,15 @@
 \draw[ar] (ro) -- (val);
 \draw[ar] (val) -- node[lbl, right] {} (pol);
 
-% residual skip drawn outside the block
-\draw[ar, black!55, dashed] (x.west) -- ++(-6mm,0) |- node[lbl, pos=0.25, left] {skip} (res.west);
+% Residual skip, routed outside Stream A. Anchoring it to add.west or to the
+% input puts the vertical run inside one of the stream boxes; only an offset
+% from the widest box in the upper half clears both.
+\coordinate (skipx) at ([xshift=-4mm]conv.west);
+\draw[ar, black!55, dashed] (x.west) -- (x.west -| skipx) -- (res.west -| skipx);
+\draw[ar, black!55, dashed] (res.west -| skipx) -- (res.west);
+\node[lbl, above] at ($(res.west -| skipx)!0.5!(res.west)$) {skip};
 
 % group frame
-\node[grp, fit=(conv)(ssm)(add)(qalu)(res), label={[font=\scriptsize\scshape, black!55]above:Deadband-SSM block $\times L$}] {};
+\node[grp, fit=(conv)(ssm)(add)(qalu)(res)(skipx), label={[font=\scriptsize\scshape, black!55]above:Deadband-SSM block $\times L$}] {};
 
 \end{tikzpicture}

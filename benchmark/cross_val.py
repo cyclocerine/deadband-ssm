@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -28,9 +28,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from scipy.stats import spearmanr
-from torch import Tensor
 
-from core.model import DeadbandSSM
+from core.baselines import build_model
 from data.fetcher import BARS_PER_YEAR, Panel, Standardizer
 from metrics.losses import DifferentialSharpeLoss, compute_metrics
 
@@ -69,6 +68,8 @@ class TrainConfig:
     use_ssm: bool = True
     center_returns: bool = True
     bars_per_year: int = BARS_PER_YEAR
+    arch: str = "ssm"
+    timeframe: str = "5m"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -109,7 +110,8 @@ class PurgedWalkForward:
         n = self.n_samples
         first_train_end = int(self.initial_train_frac * n)
         block = (n - first_train_end) // self.n_splits
-        val_len = int(min(max(self.val_frac * n, 2_000), 15_000))
+        floor = min(2_000, max(64, n // 10))
+        val_len = int(min(max(self.val_frac * n, floor), 15_000))
         out: list[Split] = []
         for i in range(self.n_splits):
             test_start = first_train_end + i * block
@@ -276,14 +278,15 @@ def run_experiment(task: dict[str, Any]) -> dict[str, Any]:
     x_all = scaler.transform(panel.features)
     r_all = panel.returns.astype(np.float32)
 
-    model = DeadbandSSM(
+    model = build_model(
+        cfg.arch,
         n_features=panel.features.shape[1],
         d_model=cfg.d_model,
         n_layers=cfg.n_layers,
         d_state=cfg.d_state,
         dropout=cfg.dropout,
         act=act,
-        mode=cfg.mode,  # type: ignore[arg-type]
+        mode=cfg.mode,
         use_conv=cfg.use_conv,
         use_ssm=cfg.use_ssm,
     )
@@ -307,7 +310,7 @@ def run_experiment(task: dict[str, Any]) -> dict[str, Any]:
         sign_acc = float(np.mean(np.sign(forecast) == np.sign(ret)))
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    tag = f"{act}_f{split.fold}_s{seed}"
+    tag = f"{act}_f{split.fold}_s{seed}" if cfg.arch == "ssm" else f"{cfg.arch}_{act}_f{split.fold}_s{seed}"
     np.savez_compressed(
         out_dir / f"{tag}.npz",
         positions=pos,
@@ -320,6 +323,8 @@ def run_experiment(task: dict[str, Any]) -> dict[str, Any]:
 
     result = {
         "activation": act,
+        "arch": cfg.arch,
+        "timeframe": cfg.timeframe,
         "fold": split.fold,
         "seed": seed,
         "n_params": model.n_params,

@@ -7,6 +7,8 @@ Examples::
     python run_pipeline.py --stage bench --folds 5 --seeds 0 1 2 --epochs 6 --steps 100
     python run_pipeline.py --stage analysis --figures      # reuse existing runs
     python run_pipeline.py --stage export --ckpt results/raw/qalu_f0_s0.pt
+    python run_pipeline.py --stage sweep           # cross-timeframe, cross-model grid
+    python run_pipeline.py --stage sweep-report    # its LaTeX table and macros
 
 Every stage is idempotent and writes into ``results/``; the paper's numbers are
 read from ``results/analysis.json`` and never typed by hand.
@@ -186,8 +188,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--stage",
         default="all",
-        choices=["all", "data", "bench", "analysis", "macros", "figures", "export"],
-        help="'macros' re-renders tables/macros from results/analysis.json without re-bootstrapping",
+        choices=[
+            "all", "data", "bench", "analysis", "macros", "figures", "export",
+            "sweep", "sweep-report",
+        ],
+        help=(
+            "'macros' re-renders tables/macros from results/analysis.json without "
+            "re-bootstrapping; 'sweep' runs the cross-timeframe grid; 'sweep-report' "
+            "re-renders its table without re-running it"
+        ),
     )
     ap.add_argument("--start", default="2020-01-01")
     ap.add_argument("--end", default=None)
@@ -212,6 +221,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ckpt", default="results/raw/qalu_f0_s0.pt")
     ap.add_argument("--figures", action="store_true", help="also render figures during the analysis stage")
     args = ap.parse_args(argv)
+
+    # The sweep is not part of "all": it is hours of CPU on the reference machine
+    # and its budget is deliberately smaller than the main grid's.
+    if args.stage == "sweep":
+        from benchmark.sweep import run_sweep
+
+        _banner("sweep")
+        run_sweep(epochs=2, steps=80, workers=args.workers, out_root=str(ROOT / "results" / "sweep"))
+        return 0
+    if args.stage == "sweep-report":
+        from analysis import sweep_report
+
+        _banner("sweep report")
+        sweep_report.main([])
+        return 0
 
     panel = None
     if args.stage in ("all", "data", "bench", "export"):
@@ -239,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
             if p["mean_diff"] > 0 and p["ci_low"] > 0 and p["wilcoxon_p"] < 0.05
         ]
         print("Q-ALU significantly better than: " + (", ".join(passed) if passed else "none"))
-        print(f"headline Sharpe: " + ", ".join(f"{a}={v['sharpe']:.3f}" for a, v in analysis["summary"].items()))
+        print("headline Sharpe: " + ", ".join(f"{a}={v['sharpe']:.3f}" for a, v in analysis["summary"].items()))
     return 0
 
 

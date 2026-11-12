@@ -26,10 +26,52 @@ from typing import Final, Iterable
 import numpy as np
 import pandas as pd
 
-__all__ = ["Panel", "Standardizer", "load_panel", "build_features", "BARS_PER_YEAR"]
+__all__ = [
+    "Panel",
+    "Standardizer",
+    "load_panel",
+    "load_panel_resampled",
+    "build_features",
+    "resample_klines",
+    "BARS_PER_YEAR",
+    "BARS_PER_YEAR_BY_TF",
+    "EMBARGO_BARS",
+]
 
-INTERVAL_MINUTES: Final[dict[str, int]] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+INTERVAL_MINUTES: Final[dict[str, int]] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440, "1w": 10080}
 BARS_PER_YEAR: Final[int] = 365 * 24 * 12  # 5-minute bars, crypto trades 24/7
+
+#: Bars per year for every timeframe the sweep uses. Crypto trades 24/7, so a
+#: year is 365 days of bars and no trading-calendar correction is needed.
+BARS_PER_YEAR_BY_TF: Final[dict[str, int]] = {
+    "5m": 365 * 24 * 12,
+    "15m": 365 * 24 * 4,
+    "1h": 365 * 24,
+    "4h": 365 * 6,
+    "1d": 365,
+    "1w": 52,
+}
+
+#: Purge gap in bars. ``seq_len + 1`` covers the input window and the label
+#: horizon; the embargo covers one day of serial dependence, which is 288 bars
+#: at 5 minutes and one bar at 1 day or longer.
+EMBARGO_BARS: Final[dict[str, int]] = {
+    "5m": 288,
+    "15m": 96,
+    "1h": 24,
+    "4h": 6,
+    "1d": 1,
+    "1w": 1,
+}
+
+_RESAMPLE_RULE: Final[dict[str, str]] = {
+    "5m": "5min",
+    "15m": "15min",
+    "1h": "1h",
+    "4h": "4h",
+    "1d": "1D",
+    "1w": "W-MON",
+}
 
 _KLINE_COLUMNS: Final[list[str]] = [
     "open_time",
@@ -313,4 +355,75 @@ def load_panel(
         feature_names=names,
         symbol=symbol,
         interval=interval,
+    )
+
+
+def resample_klines(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    """Aggregate 5-minute klines to ``timeframe`` with the standard OHLCV rules.
+
+    Resampling instead of downloading a second archive keeps every timeframe on
+    exactly the same underlying trades, which is what makes the cross-timeframe
+    comparison a comparison of horizons rather than of data vintages. Weekly bars
+    are left-labelled on Monday 00:00 UTC, matching Binance's own ``1w`` klines.
+    A trailing bucket that the 5-minute series does not fill is dropped: an
+    incomplete bar would leak the end of the sample into a period whose length is
+    not known at decision time.
+    """
+    if timeframe not in _RESAMPLE_RULE:
+        raise ValueError(f"unknown timeframe {timeframe!r}")
+    if timeframe == "5m":
+        return df.copy()
+
+    d = df.copy()
+    d["timestamp"] = pd.to_datetime(d["timestamp"], utc=True)
+    d = d.set_index("timestamp").sort_index()
+    agg = d.resample(_RESAMPLE_RULE[timeframe], label="left", closed="left").agg(
+        {
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+            "quote_volume": "sum",
+            "trades": "sum",
+            "taker_buy_base": "sum",
+            "taker_buy_quote": "sum",
+        }
+    )
+    agg = agg.dropna(subset=["close"])
+
+    # Drop the final bucket unless the 5-minute series reaches its end.
+    rule_end = d.index[-1] + pd.Timedelta(minutes=5)
+    bucket = pd.Series(agg.index, index=agg.index).add(
+        pd.tseries.frequencies.to_offset(_RESAMPLE_RULE[timeframe])
+    )
+    if len(agg) and rule_end < bucket.iloc[-1]:
+        agg = agg.iloc[:-1]
+
+    agg = agg.reset_index()
+    agg["open_time"] = (agg["timestamp"].astype("int64") // 10**6).astype("int64")
+    agg["close_time"] = agg["open_time"] + INTERVAL_MINUTES.get(timeframe, 0) * 60_000 - 1
+    return agg
+
+
+def load_panel_resampled(
+    symbol: str = "BTCUSDT",
+    timeframe: str = "5m",
+    start: str = "2020-01-01",
+    end: str | None = None,
+    cache_dir: str | Path = "data/cache",
+    window: int = 20,
+) -> Panel:
+    """Load the cached 5-minute archive and aggregate it to ``timeframe``."""
+    base = load_klines(symbol, "5m", start, end, cache_dir)
+    df = resample_klines(base, timeframe)
+    X, y, mask, names = build_features(df, window=window)
+    ts = pd.DatetimeIndex(df["timestamp"].to_numpy()[mask])
+    return Panel(
+        timestamps=ts,
+        features=X[mask],
+        returns=y[mask],
+        feature_names=names,
+        symbol=symbol,
+        interval=timeframe,
     )

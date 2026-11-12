@@ -11,14 +11,12 @@ re-trained here. Outputs:
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 
 from analysis.stats import (
-    BARS_PER_YEAR,
     aggregate,
     deflated_sharpe_ratio,
     dm_test,
@@ -114,7 +112,6 @@ def analyse(
 
     streams: dict[str, dict[str, float]] = {}
     dm: dict[str, Any] = {}
-    boot: dict[str, Any] = {}
     base_stream = None
     for act in ACTIVATIONS:
         try:
@@ -148,15 +145,34 @@ def analyse(
     sr_vals = np.array([v["sharpe"] for v in streams.values()])
     trials = n_trials if n_trials is not None else max(len(sr_vals), 1) * 3
     dsr, hurdle = ({}, 0.0)
+    dsr_best: dict[str, Any] = {}
     if "qalu" in streams and len(sr_vals) > 1:
+        var_sr = float(np.var(sr_vals, ddof=1))
         dsr, hurdle = deflated_sharpe_ratio(
             streams["qalu"]["sharpe"],
             streams["qalu"]["n_bars"],
             n_trials=trials,
-            sr_variance=float(np.var(sr_vals, ddof=1)),
+            sr_variance=var_sr,
             skew=streams["qalu"]["skew"],
             kurtosis=streams["qalu"]["kurtosis"],
         )
+        # The deflation is about the arm a reader would pick, i.e. the best of
+        # the trials, not the arm we happen to be advocating.
+        best_arm = max(streams, key=lambda a: streams[a]["sharpe"])
+        best_val, best_hurdle = deflated_sharpe_ratio(
+            streams[best_arm]["sharpe"],
+            streams[best_arm]["n_bars"],
+            n_trials=trials,
+            sr_variance=var_sr,
+            skew=streams[best_arm]["skew"],
+            kurtosis=streams[best_arm]["kurtosis"],
+        )
+        dsr_best = {
+            "arm": best_arm,
+            "sharpe": streams[best_arm]["sharpe"],
+            "value": best_val,
+            "hurdle_sharpe": best_hurdle,
+        }
 
     summary: dict[str, dict[str, float]] = {}
     for act in ACTIVATIONS:
@@ -202,7 +218,12 @@ def analyse(
         "paired": pairs,
         "streams": streams,
         "dm": dm,
-        "dsr": {"value": dsr, "hurdle_sharpe": hurdle, "n_trials": trials},
+        "dsr": {
+            "value": dsr,
+            "hurdle_sharpe": hurdle,
+            "n_trials": trials,
+            "best": dsr_best,
+        },
         "protocol": {
             "fee_ratio": cells[0]["config"]["fee_ratio"],
             "seq_len": cells[0]["config"]["seq_len"],
@@ -228,10 +249,13 @@ def latex_table(analysis: dict[str, Any], path: str | Path | None = None) -> str
         r"\caption{Out-of-sample results over " + str(analysis["n_cells"]) + r" paired cells ("
         + str(len(analysis["folds"])) + r" folds $\times$ " + str(len(analysis["seeds"])) + r" seeds). "
         r"Sharpe is annualised on the post-cost net stream; turnover is mean $|a_t-a_{t-1}|$ per bar. "
-        r"IR is the Sharpe of the active stream $r^{\mathrm{net}}-r^{\mathrm{BH}}$ against a buy-and-hold benchmark that pays the same entry fee; its denominator is tracking error, so it is large in magnitude whenever a policy tracks that exposure closely. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI and a Wilcoxon signed-rank $p$-value.}",
+        r"IR is the Sharpe of the active stream $r^{\mathrm{net}}-r^{\mathrm{BH}}$ against a buy-and-hold benchmark that pays the same entry fee; its denominator is tracking error, so it is large in magnitude whenever a policy tracks that exposure closely. Lower blocks give the paired Q-ALU difference with a 95\% bootstrap CI, a Wilcoxon signed-rank $p$-value and a Diebold--Mariano statistic on the stitched stream (positive $t_{\mathrm{DM}}$ means Q-ALU's net stream is the worse one), and the deflated Sharpe of the arm a reader would have selected.}",
         r"\label{tab:results}",
-        r"\small",
+        r"\scriptsize",
         r"\setlength{\tabcolsep}{3pt}",
+        # Nine columns of signed decimals do not fit \textwidth at \small; the
+        # box is scaled instead of being allowed to run into the margin.
+        r"\resizebox{\textwidth}{!}{%",
         r"\begin{tabular}{lrrrrrrrr}",
         r"\toprule",
         r"Activation & Sharpe & IR & IC & Ann.\ ret. & Max DD & Turnover & Exposure & Params \\",
@@ -248,16 +272,33 @@ def latex_table(analysis: dict[str, Any], path: str | Path | None = None) -> str
             f"{v['turnover']:.4f} & {v['exposure']:.3f} & {v['n_params']} \\\\"
         )
     lines.append(r"\midrule")
+    dm = analysis.get("dm", {})
     for act, p in analysis["paired"].items():
         # No dollars: this is appended inside the math group that closes the p-value.
         star = r"^{\dagger}" if p["wilcoxon_p"] < 0.05 else ""
+        d = dm.get(act, {})
+        dm_txt = ""
+        if d:
+            dm_p = d["p"]
+            dm_txt = (
+                f", $t_{{\\mathrm{{DM}}}}={d['stat']:+.2f}$"
+                + (" ($p<0.001$)" if dm_p < 0.001 else f" ($p={dm_p:.3f}$)")
+            )
         lines.append(
             f"\\multicolumn{{9}}{{l}}{{\\footnotesize Q-ALU $-$ {LABELS[act]}: "
             f"$\\Delta$Sharpe {p['mean_diff']:+.3f} "
             f"[{p['ci_low']:+.3f}, {p['ci_high']:+.3f}], "
-            f"$p_{{\\mathrm{{W}}}}={p['wilcoxon_p']:.3f}{star}$" + "} \\\\"
+            f"$p_{{\\mathrm{{W}}}}={p['wilcoxon_p']:.3f}{star}$" + dm_txt + "} \\\\"
         )
-    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
+    best = (analysis.get("dsr") or {}).get("best") or {}
+    if best:
+        lines.append(
+            f"\\multicolumn{{9}}{{l}}{{\\footnotesize Deflated Sharpe of the selected arm "
+            f"({LABELS.get(best['arm'], best['arm'])}): {best['sharpe']:+.3f} against a "
+            f"{best['hurdle_sharpe']:.2f} hurdle over {analysis['dsr']['n_trials']} trials, "
+            f"$p_{{\\mathrm{{DSR}}}}={best['value']:.3f}$" + "} \\\\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}}", r"\end{table*}"]
     body = "\n".join(lines)
     if path is not None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -347,11 +388,11 @@ def readme_deploy_block(deploy: dict[str, Any], path: str | Path) -> str:
         f"| ONNX Runtime | {deploy['onnx_bytes'] / 1024:.0f} KB | "
         f"{lat['onnxruntime']['p50']:.1f} ms | **{rss['onnxruntime']:.1f} MB** |",
         "",
-        f"Both exports reproduce the PyTorch policy to float32 rounding: TorchScript "
+        "Both exports reproduce the PyTorch policy to float32 rounding: TorchScript "
         + ("bit-exactly" if par["torchscript_max_abs"] < 1e-9 else
            f"to {par['torchscript_max_abs']:.1e}")
         + f", ONNX to {par['onnx_max_abs']:.1e} in maximum absolute deviation. "
-        f"The 50 MB inference budget is met by the ONNX "
+        "The 50 MB inference budget is met by the ONNX "
         f"Runtime path; the TorchScript RSS is dominated by the PyTorch runtime itself, "
         f"not by the {deploy['n_params']}-parameter model.",
     ]
@@ -416,6 +457,12 @@ def latex_macros(analysis: dict[str, Any], path: str | Path, deploy: dict[str, A
         lines.append(f"\\newcommand{{\\dsrValue}}{{{dsr['value']:.3f}}}")
         lines.append(f"\\newcommand{{\\dsrHurdle}}{{{dsr['hurdle_sharpe']:.3f}}}")
         lines.append(f"\\newcommand{{\\dsrTrials}}{{{dsr['n_trials']}}}")
+        best = dsr.get("best") or {}
+        if best:
+            lines.append(f"\\newcommand{{\\dsrBestArm}}{{{LABELS.get(best['arm'], best['arm'])}}}")
+            lines.append(f"\\newcommand{{\\dsrBestSharpe}}{{{best['sharpe']:+.3f}}}")
+            lines.append(f"\\newcommand{{\\dsrBestValue}}{{{best['value']:.3f}}}")
+            lines.append(f"\\newcommand{{\\dsrBestHurdle}}{{{best['hurdle_sharpe']:.2f}}}")
     if deploy:
         _par = max(deploy["parity"].values())
         if _par < 1e-9:

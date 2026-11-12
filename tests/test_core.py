@@ -90,7 +90,7 @@ def test_qalu_continuity_and_monotonicity() -> None:
     act = QALU(alpha=1.0, beta=1.0, gamma=1.5, delta=0.5, trainable=False)
     x = torch.linspace(-20, 20, 20001, requires_grad=True)
     y = act(x)
-    assert abs(float(y[10000])) < 1e-7
+    assert abs(float(y[10000].detach())) < 1e-7
     grad = torch.autograd.grad(y.sum(), x)[0]
     assert (grad >= -1e-6).all(), "Q-ALU must be monotone non-decreasing"
 
@@ -108,6 +108,29 @@ def test_qalu_downside_overshoot_is_1353() -> None:
     grid = np.linspace(0.0, 12.0, 1201)
     values = np.array([qalu_gradient_ratio(u) for u in grid])
     assert abs(grid[int(values.argmax())] - 2.0) < 0.02
+
+
+def test_qalu_is_c0_but_not_c1_at_the_origin() -> None:
+    """One-sided slopes are alpha from the right and 0 from the left.
+
+    The deadband is one-sided: the negative branch is quadratic at the origin,
+    the positive branch is linear. Anything downstream that assumes a smooth
+    Jacobian at zero is wrong, so pin the kink.
+    """
+    act = QALU(alpha=1.0, beta=1.0, gamma=1.5, delta=0.5, trainable=False)
+    alpha, gamma, delta = (float(act.alpha), float(act.gamma), float(act.delta))
+
+    def slope_at(x0: float) -> float:
+        x = torch.tensor([x0], requires_grad=True)
+        act(x).backward()
+        return float(x.grad)
+
+    for h in (1e-4, 1e-5):
+        assert abs(slope_at(h) - alpha) < 1e-2
+        # left branch: f'(x) = -2 gamma x / delta + O(x^2)
+        assert abs(slope_at(-h) - 2.0 * gamma * h / delta) < 1e-6
+    assert slope_at(-1e-7) < 1e-5, "left gain must vanish at the origin"
+    assert abs(slope_at(1e-7) - alpha) < 1e-3
 
 
 def test_qalu_positive_branch_peak_is_10_percent_above_asymptote() -> None:

@@ -40,7 +40,7 @@ def _style() -> None:
     )
 
 
-def fig_activation(path: str | Path, alpha: float = 1.0, beta: float = 1.0, gamma: float = 1.0, delta: float = 0.4) -> Path:
+def fig_activation(path: str | Path, alpha: float = 1.0, beta: float = 1.0, gamma: float = 1.5, delta: float = 0.5) -> Path:
     """Activation and derivative, with the Q-ALU downside overshoot marked."""
     _style()
     from core.qalu import make_activation
@@ -61,14 +61,22 @@ def fig_activation(path: str | Path, alpha: float = 1.0, beta: float = 1.0, gamm
         xt.grad = None
 
     x_star = -2.0 * delta
-    peak = gamma * (1.0 + np.exp(-2.0))  # d/dx at x* = -2 delta
+    # d/dx at x* = -2 delta. The closed form is gamma(1+e^-2); 1+e^-2 = 1.1353 is
+    # the parameter-free part, so the label must carry the gamma factor.
+    peak = gamma * (1.0 + np.exp(-2.0))
     axes[1].axvline(x_star, color="0.55", lw=0.6, ls=":")
+    # Label in the empty lower-left corner: anywhere near the peak sits under
+    # either the Q-ALU curve or the positive-branch maximum at 2.1995.
     axes[1].annotate(
-        r"$1{+}e^{-2}=1.1353$",
+        rf"$\gamma(1{{+}}e^{{-2}})={peak:.4f}$",
         xy=(x_star, peak),
-        xytext=(-3.7, peak + 0.55),
-        fontsize=6.5,
-        arrowprops=dict(arrowstyle="-", lw=0.5, color="0.4"),
+        xytext=(-3.9, 1.78),
+        ha="left",
+        va="center",
+        fontsize=6.0,
+        color="0.25",
+        bbox=dict(facecolor="white", edgecolor="none", pad=0.6),
+        arrowprops=dict(arrowstyle="-", lw=0.5, color="0.4", shrinkB=1.5),
     )
     axes[1].plot([x_star], [peak], marker="o", ms=3, color=COLORS["qalu"])
     axes[0].set_xlabel(r"$x$")

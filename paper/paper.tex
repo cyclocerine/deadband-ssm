@@ -13,9 +13,19 @@
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
         upquote=true, breaklines=true, frame=none, aboveskip=4pt, belowskip=4pt,
-        xleftmargin=2pt, language=Python, showstringspaces=false}
+        xleftmargin=2pt, language=Python, showstringspaces=false,
+        floatplacement=t}
+
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+  pdftitle={Deadband-SSM: A Causal Dual-Stream State-Space Policy Network with an Asymmetric Activation for Cost-Aware Trading},
+  pdfauthor={Faiq Hammam Mutaqin},
+  pdfkeywords={activation functions, state-space models, causal sequence models, transaction costs, walk-forward validation, Bitcoin},
+  pdfsubject={Preprint}
+}
 
 \input{macros}
+\input{tables/sweep_macros}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\QALU}{\mathrm{Q-ALU}}
@@ -131,24 +141,39 @@ returns~\cite{dsr,psr}. The training objective is the differential Sharpe ratio
 of~\cite{moody}, evaluated on post-cost net returns.
 
 \section{Mathematical Formulation}
+\label{sec:math}
 
 \subsection{The Q-ALU activation}
 With $\alpha,\beta,\gamma,\delta>0$,
 \begin{equation}
 \QALU(x)=
 \begin{cases}
-\alpha\,x\left(1+\tanh\!\left(\dfrac{x}{\beta}\right)\right), & x\ge 0,\\[2mm]
--\gamma\,x\,\mathrm{expm1}\!\left(\dfrac{x}{\delta}\right), & x<0,
+\alpha\,x\left[1+\tanh\!\left(x/\beta\right)\right], & x\ge 0,\\[1mm]
+-\gamma\,x\,\mathrm{expm1}\!\left(x/\delta\right), & x<0,
 \end{cases}
 \label{eq:qalu}
 \end{equation}
 where $\mathrm{expm1}(u)=e^{u}-1$ is evaluated with the numerically stable
 primitive so that the branch does not lose precision near the origin. The
-function is continuous at zero with $\QALU(0)=0$, and its one-sided
-derivatives agree there,
+function is continuous at zero with $\QALU(0)=0$. Its one-sided derivatives do
+\emph{not} agree,
 \begin{equation}
-\QALU'(0^+)=\alpha,\qquad \QALU'(0^-)=\gamma .
+\QALU'(0^+)=\alpha,\qquad \QALU'(0^-)=0,
+\label{eq:kink}
 \end{equation}
+so \eqref{eq:qalu} is $C^0$ but not $C^1$ at the origin for any $\alpha>0$. On
+the left the branch is quadratic, $\QALU(x)=-\gamma x^2/\delta+O(x^3)$, so the
+negative half is a genuine deadband: its gain vanishes at the origin and stays
+below $\gamma$ for $|x|<\delta$. On the right the branch is linear to first
+order, $f(x)=\alpha x+\alpha x^{2}/\beta+O(x^{4}/\beta^{3})$, so a positive perturbation of size $x$
+leaves the block at full gain $\alpha$ while the same perturbation applied
+negatively leaves it at gain $2\gamma|x|/\delta$. The asymmetry is therefore not
+a matter of tuning: it is a factor of $\alpha\delta/(2\gamma|x|)$ that diverges
+as $x\to0$. The parameter $\gamma$ is not the slope at the origin --- it is the
+slope at $x=-\delta$, where $\QALU'(-\delta)=\gamma$ exactly. The name of the
+block comes from this asymmetry and not from a symmetric deadband: it is the
+negative half that is dead near the origin, and that is where a loss is
+signalled.
 
 \paragraph{Positive branch}
 Let $u=x/\beta$. Then
@@ -174,22 +199,31 @@ and at $v=-2$,
 \QALU'(-2\delta)=\gamma\left(1+e^{-2}\right)=1.1353\,\gamma ,
 \label{eq:negpeak}
 \end{equation}
-a $13.53\%$ gain overshoot above the small-negative asymptote $\gamma$
-(Fig.~\ref{fig:act}). The second derivative changes sign at $v=-3$, so
-\eqref{eq:negpeak} is the global maximum of the negative branch.
+a $13.53\%$ gain overshoot above the slope $\gamma$ that the same branch has at
+$x=-\delta$ (Fig.~\ref{fig:act}). The second derivative
+$-\gamma\delta^{-1}e^{v}(2+v)$ vanishes at $v=-2$, so \eqref{eq:negpeak} is the
+global maximum of the negative branch; the third derivative vanishes at $v=-3$,
+which is the inflection of the slope rather than an extremum of it.
 
 \begin{proposition}[Gradient extrema]
-For $\alpha=\beta=\gamma=1$, $\delta=0.4$, the derivative of \eqref{eq:qalu}
-attains a local maximum $1.1353$ at $x=-0.8$, a local minimum at $x=-1.2$, and
-a global maximum $2.1995$ at $x\approx1.1997$.
+For the initialisation the model ships with, $\alpha=\beta=1$, $\gamma=1.5$,
+$\delta=0.5$, the derivative of \eqref{eq:qalu} attains a maximum
+$1.7030=1.1353\gamma$ on $x<0$ at $x=-1.0=-2\delta$, a global maximum
+$2.1995=2.1995\alpha$ on $x\ge0$ at $x\approx1.1997$, and has an inflection of
+the slope at $x=-1.5=-3\delta$. Its one-sided limits at the origin are $0$ from
+the left and $1$ from the right. The two ratios $1.1353$ and $1.0998$ do not
+depend on $\alpha,\beta,\gamma,\delta$; only the absolute slopes and the
+location of the negative peak do.
 \end{proposition}
 
 \begin{IEEEproof}
 Substituting $v=-2$ into the negative-branch derivative gives
 $-(e^{-2}-1)-(-2)e^{-2}=1-e^{-2}+2e^{-2}=1+e^{-2}$. Setting the second
 derivative $-\gamma\left(2e^{v}+ve^{v}\right)=0$ gives $v=-2$; the sign of
-$2+v$ shows a maximum. The positive branch follows from $u\tanh u=1$.
-The test suite asserts all three values to $10^{-3}$.
+$2+v$ shows a maximum. The positive branch follows from $u\tanh u=1$. The
+one-sided limits at the origin follow from
+$\QALU'(x)=-2\gamma x/\delta+O(x^{2})$ as $x\to0^{-}$.
+The test suite asserts the two extrema and the two one-sided limits.
 \end{IEEEproof}
 
 \subsection{Dual-stream block}
@@ -199,9 +233,9 @@ $\mathbf{W}_{\mathrm{in}}\in\R^{F\times D}$. Block $l$ computes two views of
 the same sequence (Fig.~\ref{fig:arch}).
 
 \emph{Stream A} is a depthwise causal convolution with kernel $k=3$, dilation
-$d_l=2^{l}$, left padding $(k-1)d_l$ and a slice to $T$:
+$d_{\ell}=2^{\ell}$, left padding $(k-1)d_{\ell}$ and a slice to $T$:
 \begin{equation}
-\mathbf{A}^{l}_t=\sum_{j=0}^{k-1} w^{l}_{j}\odot \mathbf{Z}^{l}_{t-jd_l},
+\mathbf{A}^{l}_t=\sum_{j=0}^{k-1} w^{l}_{j}\odot \mathbf{Z}^{\ell}_{t-jd_{\ell}},
 \end{equation}
 so that $\mathbf{A}^l_t$ depends on $\mathbf{Z}^l_{\le t}$ only.
 
@@ -317,8 +351,8 @@ an auxiliary MSE on the forecast head. That ratio is invariant to the scale of
 the position, so on an asset with a positive drift its maximiser is a constant
 long position and the objective cannot distinguish activations. The training
 target is therefore centred on the mean return of the training slice,
-$\tilde r_t=r_t-\overline{r}_{\mathrm{train}}$, and both the policy loss and the
-validation criterion used for model selection are computed on $\tilde r$. The
+$\widetilde{r}_t=r_t-\overline{r}_{\mathrm{train}}$, and both the policy loss and the
+validation criterion used for model selection are computed on $\widetilde{r}$. The
 offset is a single scalar estimated from the training slice alone, so no
 information crosses a split boundary; every reported metric is computed on the
 raw returns.
@@ -338,6 +372,32 @@ walk-forward stream respects time order and uses a Newey--West variance with a
 configurations tried. The claim "Q-ALU is better than baseline $B$" is made
 only if the paired mean difference is positive, its 95\% bootstrap CI excludes
 zero, the Wilcoxon $p<0.05$, and Diebold--Mariano does not favour $B$.
+
+\subsection{Cross-timeframe and cross-model sweep}
+\label{sec:sweep}
+Table~\ref{tab:results} fixes two choices a practitioner would treat as free:
+the horizon and the sequence model. The sweep asks whether the ordering of the
+four activations is a property of the activation or of that pair. Bars are
+resampled from the same 5-minute archive to 15\,m, 1\,h, 4\,h, 1\,d and 1\,w
+(UTC, left-labelled, trailing partial buckets dropped), so two rows of
+Table~\ref{tab:sweep} differ in horizon and not in data vintage; the 5-minute row
+is re-run at the sweep budget so that the budget effect is visible in the same
+table. Purge and embargo scale with the bar: $288$ bars at 5\,m, then $96$,
+$24$, $6$, $1$, $1$. The weekly panel holds \sweepBarsOneW{} bars, so it keeps a
+single fold whose training slice is the first three quarters of the panel and a
+shorter input window ($T=8$); nothing in this paper rests on that row.
+
+Four models replace Streams~A and B inside \eqref{eq:block}: the dual-stream
+block itself (\textsc{ssm}), a TCN with the same dilation schedule, and LSTM and
+GRU cells written out in the repository rather than called from a fused
+framework kernel. A fused kernel hard-codes $\tanh$ inside the cell, which would
+leave the candidate activation applied only outside the recurrence and make the
+ablation meaningless; the hand-written cells keep both gates sigmoid and apply
+the candidate exactly where \eqref{eq:qalu} sits. Width, readout, forecast head,
+optimiser and budget are shared across all \sweepCells{} cells, which run
+\sweepEpochs{} epochs of \sweepSteps{} steps on one seed. That budget ranks cells
+against each other and does not support a significance test, so
+Table~\ref{tab:sweep} is read as a description and no claim above depends on it.
 
 \section{Results}
 
@@ -375,6 +435,49 @@ blocks (log scale), the equal-weight ensemble of \nSeeds{} paired seeds.}
 
 \resultText
 
+\paragraph{The two tests that are not a fold average}
+Table~\ref{tab:results} also carries the two statistics promised in
+Section~\ref{sec:protocol} that a mean over ten cells cannot replace. The
+Diebold--Mariano statistic is computed on the stitched stream, so it sees one
+series of per-bar net returns rather than ten Sharpe ratios, with a Newey--West
+variance whose Bartlett window is truncated at the same 288-bar day used by the
+bootstrap. It is positive when Q-ALU's stream is the worse one, and it is
+\dmStatGelu{} against GELU, \dmStatSwish{} against Swish and \dmStatRelu{}
+against ReLU, with $p=\dmPGelu$, $p=\dmPSwish$ and $p=\dmPRelu$ respectively: the
+ordering survives the change of unit of analysis. The deflated Sharpe ratio asks
+the question a reader should ask of the arm we did \emph{not} choose. The best
+arm in the table is \dsrBestArm{} at a Sharpe of \dsrBestSharpe, and the hurdle
+implied by \dsrTrials{} trials is \dsrBestHurdle{}, so its deflated probability
+is \dsrBestValue: no arm clears a selection-aware bar. That hurdle is itself
+worth reading, because it is not small. It is the expected maximum of
+\dsrTrials{} draws from a distribution whose spread is dominated by the Q-ALU
+cells, and a procedure that had to choose among arms differing by nine
+annualised Sharpe points would need to see a Sharpe above \dsrBestHurdle{} before
+crediting the winner. The statistic therefore does not separate the three
+remaining arms from one another here, and we do not use it to. What it does
+establish is the weaker and sufficient point: on this sample, no cell is
+distinguishable from a zero-Sharpe strategy once selection is priced in, which is
+the reading we adopt and the reason the result is reported as a negative one.
+
+\subsection{Across timeframes and sequence models}
+\input{tables/sweep}
+
+Three readings survive the reduced budget. First, the ordering of the four
+activations is not a 5-minute artefact: averaged over every cell in the sweep,
+Q-ALU ranks \sweepQaluRank{} of four at \sweepQaluMean{}, \sweepBestAct{} leads
+at \sweepBestActMean{}, and \sweepWorstAct{} trails at \sweepWorstActMean{}.
+Second, the chattering regime follows the activation rather than the sequence
+model. We flagged a cell as chattering when its mean turnover exceeded
+\sweepChatThr{} per bar, a threshold fixed before the sweep was run; the median
+cell sits at \sweepTurnMedian{}. \sweepChatQalu{} of the \sweepQaluCells{} Q-ALU
+cells crossed it, against \sweepChatOther{} of the \sweepOtherCells{} cells that
+use another activation, and Q-ALU's mean turnover over its cells is
+\sweepTurnQalu{} against \sweepTurnOther{} for the rest. Third, the best single cell in the sweep is
+\sweepBestCell{} at \sweepBestSharpe{}, still negative after the fee, so the
+negative result of Table~\ref{tab:results} is a property of the data, the fee and
+the horizon rather than of the block: swapping the recurrent core, or moving the
+horizon by three orders of magnitude, does not turn the signal profitable.
+
 \section{Discussion}
 
 \paragraph{What the experiment can and cannot say}
@@ -392,6 +495,15 @@ forecast, which exceeds the annualised volatility of most intraday signals. The
 turnover column of Table~\ref{tab:results} is therefore not a secondary
 diagnostic: any activation that produces a jumpier policy is penalised twice,
 once in the objective and once in the reported Sharpe.
+
+\paragraph{Every arm loses money after cost}
+No row of Table~\ref{tab:results} is profitable: the best post-cost mean Sharpe
+in the table is negative, Q-ALU included. On this instrument, with four features
+and a 5-minute horizon, the four-feature signal sits in a negative post-cost
+drift regime for all four activations, so the comparison measures
+\emph{cost resilience} --- which activation degrades least when the fee is
+charged --- and not whether any of them is a deployable strategy. A reader who
+wants a profitability claim will not find one here, and we do not make one.
 
 \paragraph{Training stability}
 The budget a single commodity CPU allows is small, and the Differential-Sharpe
@@ -419,7 +531,31 @@ What this establishes is that the instability exists, is bimodal, and is
 expensive; it does not establish that the activation causes it. A turnover cap, a
 different budget, or a learning-rate change could remove the cycle without
 touching the activation, and that run has not been made. We report the arm as it
-behaved rather than the arm we would have preferred.
+behaved rather than the arm we would have preferred. The next paragraph states
+the mechanism the calculus suggests and the run that would test it.
+
+\paragraph{A mechanism, and how to falsify it}
+Section~\ref{sec:math} gives a candidate mechanism that needs no new run to
+state. LayerNorm sets the mean of $Z$ to zero, so about half of the entries
+arriving at \eqref{eq:qalu} land on the negative branch within a few tenths of
+the origin, where the gain is $2\gamma|x|/\delta$ and vanishes as $x\to0^-$,
+while the positive side passes the same perturbation at $\alpha$ however small
+it is. The block therefore does not contract a perturbation symmetrically: it
+deletes small negative excursions and transmits small positive ones at full
+gain, a ratio that diverges at the origin. Two non-smoothnesses then coincide at
+the same operating point. The activation's Jacobian jumps from $0$ to $\alpha$
+across $Z=0$, and the cost term $c\,|\pi_t-\pi_{t-1}|$ has a kink at every
+position flip; a gradient method has no smooth path through either, and Q-ALU is
+the only arm in Table~\ref{tab:results} that supplies the first. The overshoots
+aggravate rather than relieve this: the negative branch reaches
+$1.1353\gamma$ at $x=-2\delta$, so a moderate loss raises the gain by $13.5\%$
+exactly where the policy is trying to cut exposure, and the positive branch
+peaks $9.98\%$ above its own asymptote in the same band. The prediction is
+falsifiable at one flag of the released benchmark: an activation with a
+\emph{symmetric} vanishing gain at the origin and no overshoot should lose the
+cycle at the same budget, and one that keeps the overshoot without the
+asymmetry should keep it. Neither variant is reported here, so the mechanism
+remains the best explanation available rather than a measured cause.
 
 Fig.~\ref{fig:equity} compounds the bar-by-bar ensemble of the two seeds rather
 than averaging per-cell Sharpes, and the two aggregations can disagree. They do
@@ -443,17 +579,21 @@ $O(T k D)$ and the recurrence is $O(T D N)$ with $N=8$.
 \subsection{Released code and a minimal inference path}
 The repository ships the whole pipeline, not a cleaned-up excerpt: the fetcher,
 the block, the splitter, the loss, the 40-cell grid, the bootstrap, the figure
-and table generators that produced this paper, and the exporter. Four commands
-regenerate every number here,
+and table generators that produced this paper, the cross-timeframe sweep of
+Section~\ref{sec:sweep}, and the exporter. Five commands regenerate every number
+here,
 \begin{lstlisting}[language=bash, breaklines=true, numbers=none,
                    basicstyle=\ttfamily\scriptsize, aboveskip=2pt, belowskip=2pt]
 python run_pipeline.py --stage data
 python run_pipeline.py --stage bench --seeds 0 1
 python run_pipeline.py --stage analysis --boot 1000
 python run_pipeline.py --stage macros
+python run_pipeline.py --stage sweep && python run_pipeline.py --stage sweep-report
 \end{lstlisting}
-where the last stage re-renders the \LaTeX{} macros and tables from the cached
-JSON, so a change to the prose does not cost a bootstrap. The exported artifacts
+where the last two re-render the \LaTeX{} macros and tables from cached JSON, so
+a change to the prose does not cost a bootstrap or a sweep. The sweep is
+resumable and skips cells already on disk, so an interrupted run is restarted
+with the same command. The exported artifacts
 are checked by a script that rebuilds the fold geometry with the benchmark's own
 splitter and compares the model's position against the one recorded in the
 cell's artifact: they agree to float32 rounding, which makes the printed line a

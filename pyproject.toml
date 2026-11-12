@@ -35,7 +35,7 @@ Homepage = "https://github.com/cyclocerine/deadband-ssm"
 QALU = "https://github.com/cyclocerine/qalu-pytorch"
 
 [tool.setuptools]
-packages = ["core", "data", "metrics", "benchmark", "export"]
+packages = ["core", "data", "metrics", "benchmark", "export", "analysis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

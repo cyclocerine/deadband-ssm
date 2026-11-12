@@ -137,6 +137,30 @@ this block.
 Q-ALU is bimodal rather than uniformly bad: 3 of its 10 cells trade below 0.02 turnover and average a Sharpe of +0.094, while the remaining 7 average -13.929 and pay 573% of notional per year in fees. The protocol forbids selecting the quiet subset, so the reported mean is the mean over both regimes.
 <!-- RESULTS:END -->
 
+## Cross-timeframe sweep
+
+A second grid asks whether the ordering of the four activations is a 5-minute
+artefact, and whether it survives replacing the recurrent core. Every timeframe
+is resampled from the same cached 5m archive, so the rows differ in horizon, not
+in data vintage; the embargo scales with the bar length (288, 96, 24, 6, 1, 1
+bars), and the weekly panel runs a single fold with `T = 8` because the archive
+holds only ~319 weekly bars.
+
+```bash
+python run_pipeline.py --stage sweep         # 6 timeframes x 4 models x 4 activations
+python run_pipeline.py --stage sweep-report  # -> paper/tables/sweep.tex + sweep_macros.tex
+```
+
+The sweep is resumable: each cell writes `results/sweep/<tf>/<arch>_<act>_f<fold>_s<seed>.json`
+next to its `.npz` and `.pt`, and completed cells are skipped on a re-run. Cells
+aggregate into `results/sweep/all.json`, which is the only input to the report.
+
+Its budget is deliberately smaller than the main grid's -- 2 epochs, 80 steps,
+one seed per cell -- because a single 5m cell costs ~500 s on the reference CPU.
+Numbers from the sweep are therefore not comparable with Table I, and no
+significance claim is made across cells; the sweep is used only for the sign and
+the ranking of the activation effect.
+
 ## Paper
 
 `paper/paper.tex` is the IEEE conference paper; `paper/macros.tex` and
