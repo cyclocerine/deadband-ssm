@@ -173,6 +173,17 @@ not alpha. Seed ensembling makes Q-ALU worse (-19.11 over 5 folds, exposure 0.25
 the chattering seeds are phase-locked, so averaging cancels exposure and leaves
 the cost.
 
+The regime is also not a seed lottery. Within the Q-ALU arm every cell in folds
+2-4 chatters (turnover 0.10-0.12, 6 of 6), fold 1 splits by seed (0.0042 vs
+0.1151) and fold 0 is quiet; `corr(train_bars, turnover)` is +0.75 for Q-ALU and
+-0.77 to -0.37 for the other three arms. Expanding windows make training size and
+calendar time collinear, so this does not identify which of the two flips the
+switch -- only that picking a luckier seed is not a fix.
+
+```bash
+python -m analysis.fold_scan --dir results/raw   # per-fold turnover and Sharpe
+```
+
 ## Cross-timeframe sweep
 
 A second grid asks whether the ordering of the four activations is a 5-minute

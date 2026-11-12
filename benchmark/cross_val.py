@@ -61,6 +61,10 @@ class TrainConfig:
     batch_size: int = 128
     grad_clip: float = 1.0
     fee_ratio: float = 5e-4
+    # Fee charged inside the training loss only. ``None`` charges the true cost;
+    # a larger value is a surcharge that teaches the policy to avoid turnover it
+    # would not be paid for, while every reported metric still uses ``fee_ratio``.
+    train_fee_ratio: float | None = None
     patience: int = 3
     mode: str = "derived"
     sup_weight: float = 1.0
@@ -190,7 +194,8 @@ def _train(
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     total_steps = cfg.epochs * cfg.steps_per_epoch
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=total_steps, eta_min=cfg.lr * 0.05)
-    loss_fn = DifferentialSharpeLoss(fee_ratio=cfg.fee_ratio, bars_per_year=cfg.bars_per_year)
+    train_fee = cfg.fee_ratio if cfg.train_fee_ratio is None else cfg.train_fee_ratio
+    loss_fn = DifferentialSharpeLoss(fee_ratio=train_fee, bars_per_year=cfg.bars_per_year)
 
     n_train = len(x_train)
     hi = n_train - (cfg.batch_size + cfg.seq_len + 2)
