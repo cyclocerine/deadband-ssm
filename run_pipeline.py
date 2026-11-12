@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from benchmark.determinism import ensure_reproducible_env  # noqa: E402
+
 
 def _banner(msg: str) -> None:
     print(f"\n=== {msg} " + "=" * max(0, 66 - len(msg)))
@@ -184,6 +186,7 @@ def stage_export(args: argparse.Namespace, panel):
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_reproducible_env()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--stage",

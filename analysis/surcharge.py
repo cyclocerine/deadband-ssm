@@ -21,6 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from benchmark.cross_val import PurgedWalkForward, TrainConfig, benchmark
+from benchmark.determinism import ensure_reproducible_env
 from data.fetcher import load_panel
 
 ACTIVATIONS = ("qalu", "gelu", "swish", "relu")
@@ -64,6 +65,7 @@ def compare(raw_dir: str, sur_dir: str) -> None:
 
 
 def main() -> None:
+    ensure_reproducible_env()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--activations", nargs="+", default=["qalu", "gelu"], choices=ACTIVATIONS)
     ap.add_argument("--seeds", nargs="+", type=int, default=[0, 1])

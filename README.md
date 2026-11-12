@@ -216,6 +216,22 @@ the selected epoch wins by 0.003, so the model is not fooling the validation
 window -- it cannot find a quiet policy on that slice, where the loss sits an
 order of magnitude higher than on the quiet folds (81 vs 7).
 
+### Reproducibility
+
+The same `(activation, fold, seed)` cell used to train into different basins on
+different runs -- the same cell produced Sharpe -0.999, -1.294, -14.891 and
+-16.611 across four runs of an identical command. Two causes, both fixed:
+
+* `build_model` ran before `torch.manual_seed(seed)`, so weight initialisation
+  drew from whatever state the worker process happened to be in.
+* Python randomises string hashing per process, which can reorder dict and set
+  iteration and, through it, the order of float accumulation. The training entry
+  points now re-exec themselves once with `PYTHONHASHSEED=0`
+  (`benchmark/determinism.py`).
+
+With both in place two runs of the same cell are bit-identical, and
+`tests/test_determinism.py` fails if either guard is removed.
+
 ### The objective weight is the knob that matters
 
 The total training loss is `DSR + sup_weight * MSE(forecast)`, and `sup_weight`

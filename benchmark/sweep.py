@@ -26,6 +26,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 
 from benchmark.cross_val import PurgedWalkForward, TrainConfig, run_experiment
+from benchmark.determinism import ensure_reproducible_env
 from data.fetcher import BARS_PER_YEAR_BY_TF, EMBARGO_BARS, Panel, load_panel_resampled
 
 __all__ = ["TIMEFRAMES", "ARCHS", "ACTS", "SPLIT_GEOMETRY", "run_sweep", "main"]
@@ -190,6 +191,8 @@ def run_sweep(
 
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
+
+    ensure_reproducible_env()
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--timeframes", nargs="+", default=list(TIMEFRAMES))

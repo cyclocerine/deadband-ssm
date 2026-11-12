@@ -283,6 +283,11 @@ def run_experiment(task: dict[str, Any]) -> dict[str, Any]:
     x_all = scaler.transform(panel.features)
     r_all = panel.returns.astype(np.float32)
 
+    # Seed before the model is built, not only inside ``_train``: weight
+    # initialisation draws from the process-global RNG, so without this the same
+    # (activation, fold, seed) cell trains from a different initialisation
+    # depending on which cells ran earlier in the same worker.
+    torch.manual_seed(seed)
     model = build_model(
         cfg.arch,
         n_features=panel.features.shape[1],
