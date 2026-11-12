@@ -37,7 +37,7 @@ def _rows() -> list[dict[str, Any]]:
                             "turnover": 0.02 + 0.001 * k + 0.05 * (act == "qalu"),
                             "ann_return": -0.2 - 0.01 * k,
                             "n_samples": 100_000 // (i + 1),
-                            "config": {"epochs": 2, "steps": 80},
+                            "config": {"epochs": 2, "steps_per_epoch": 80},
                         }
                     )
     return rows
@@ -68,6 +68,34 @@ def test_prose_macros_are_all_emitted(tmp_path: Path) -> None:
     emitted = set(re.findall(r"\\newcommand\{\\(sweep[A-Za-z]+)\}", latex_macros(_rows(), tmp_path / "m.tex").read_text()))
     missing = sorted(used - emitted)
     assert not missing, f"used in paper.tex but never emitted: {missing}"
+
+
+def _macro_value(text: str, name: str) -> str | None:
+    m = re.search(r"\\newcommand\{\\" + name + r"\}\{([^}]*)\}", text)
+    return m.group(1) if m else None
+
+
+def test_steps_macro_reads_the_real_config_key(tmp_path: Path) -> None:
+    """The benchmark stores ``steps_per_epoch``; reading ``steps`` yields '?'."""
+    text = latex_macros(_rows(), tmp_path / "m.tex").read_text()
+    assert _macro_value(text, "sweepSteps") == "80"
+    assert _macro_value(text, "sweepCells") == str(len(TF_ORDER) * len(ARCH_ORDER) * len(ACT_ORDER) * 2)
+
+
+def test_runner_up_macro_skips_the_subject(tmp_path: Path) -> None:
+    """When Q-ALU is the extreme, "ahead of X" must not name Q-ALU again.
+
+    A sentence built from a best-arm macro and a runner-up macro collapses into
+    "Q-ALU at x, ahead of Q-ALU at x" if the runner-up is the best arm overall.
+    """
+    rows = _rows()
+    for r in rows:  # make Q-ALU the best arm in every group
+        r["sharpe"] = 1.0 if r["activation"] == "qalu" else r["sharpe"]
+    text = latex_macros(rows, tmp_path / "m.tex").read_text()
+    assert _macro_value(text, "sweepMedBestAct") == "Q-ALU"
+    assert _macro_value(text, "sweepMedNextAct") != "Q-ALU"
+    assert _macro_value(text, "sweepFiveMBestAct") == "Q-ALU"
+    assert _macro_value(text, "sweepFiveMNextAct") != "Q-ALU"
 
 
 def test_table_has_one_row_per_timeframe_and_model(tmp_path: Path) -> None:

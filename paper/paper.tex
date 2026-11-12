@@ -398,6 +398,10 @@ optimiser and budget are shared across all \sweepCells{} cells, which run
 \sweepEpochs{} epochs of \sweepSteps{} steps on one seed. That budget ranks cells
 against each other and does not support a significance test, so
 Table~\ref{tab:sweep} is read as a description and no claim above depends on it.
+The sweep was added after the pre-registered grid had been run, and the
+repository records which choices were fixed before it ran --- the grid, the
+budget, the embargo table and the turnover threshold --- and which were written
+afterwards.
 
 \section{Results}
 
@@ -462,21 +466,48 @@ the reading we adopt and the reason the result is reported as a negative one.
 \subsection{Across timeframes and sequence models}
 \input{tables/sweep}
 
-Three readings survive the reduced budget. First, the ordering of the four
-activations is not a 5-minute artefact: averaged over every cell in the sweep,
-Q-ALU ranks \sweepQaluRank{} of four at \sweepQaluMean{}, \sweepBestAct{} leads
-at \sweepBestActMean{}, and \sweepWorstAct{} trails at \sweepWorstActMean{}.
-Second, the chattering regime follows the activation rather than the sequence
-model. We flagged a cell as chattering when its mean turnover exceeded
-\sweepChatThr{} per bar, a threshold fixed before the sweep was run; the median
-cell sits at \sweepTurnMedian{}. \sweepChatQalu{} of the \sweepQaluCells{} Q-ALU
-cells crossed it, against \sweepChatOther{} of the \sweepOtherCells{} cells that
-use another activation, and Q-ALU's mean turnover over its cells is
-\sweepTurnQalu{} against \sweepTurnOther{} for the rest. Third, the best single cell in the sweep is
-\sweepBestCell{} at \sweepBestSharpe{}, still negative after the fee, so the
-negative result of Table~\ref{tab:results} is a property of the data, the fee and
-the horizon rather than of the block: swapping the recurrent core, or moving the
-horizon by three orders of magnitude, does not turn the signal profitable.
+The sweep does not reproduce the ordering of Table~\ref{tab:results}, and the
+honest reading of Table~\ref{tab:sweep} is that the ordering is budget-sensitive.
+Averaged over the \sweepGroups{} (timeframe, model) groups, Q-ALU ranks
+\sweepQaluRank{} of four at \sweepQaluMean{}, behind \sweepBestAct{} at
+\sweepBestActMean{}. Taken as a median over the same groups the ranking reverses:
+Q-ALU is first at \sweepMedQalu{}, ahead of \sweepMedNextAct{} at
+\sweepMedNext{}. The mean is
+therefore not a summary of the typical cell; it is set by a handful of cells that
+blow up, and the median is set by the many that do not. What survives both
+readings is the paired statistic. Inside a (timeframe, model) group the four
+activations see identical bars, folds and budget, so the activation is the only
+difference; Q-ALU matches or beats the best other arm in \sweepQaluWins{} of
+\sweepGroups{} groups, with a median gap of \sweepQaluGapMed{} Sharpe points, a
+best group at \sweepQaluGapBest{} and a worst at \sweepQaluGapWorst{}. That
+supports the weaker claim the main grid needs --- Q-ALU is not the better
+activation --- and not the stronger one, that it is worse by the same margin
+wherever it is run.
+
+The budget effect is visible in the same table and works against generalisation.
+On the 5-minute panel with the dual-stream block, the sweep budget gives Q-ALU
+\sweepFiveMQalu{}, the best of the four, with \sweepFiveMNextAct{} next at
+\sweepFiveMNext{}. At the budget of Table~\ref{tab:results}, on the same data and
+the same folds, that same arm is the worst of four at \srQalu{} against \srGelu{}
+for GELU. The ordering flips when the budget changes, so the ordering in
+Table~\ref{tab:results} is a property of that protocol at that budget rather than
+of the activation, which is the caution we ask the reader to apply to every
+number here. Of the \sweepCells{} cells, exactly one is positive after the fee:
+\sweepBestCell{} at \sweepBestSharpe{}, on a weekly panel of \sweepBarsOneW{} bars
+with a single fold, where no test of any kind is possible. It is reported because
+it exists in the grid, not as evidence that the signal is there.
+
+Chattering, finally, does not follow the activation at this budget, and the sweep
+therefore does not corroborate the mechanism proposed for Table~\ref{tab:results}.
+We flagged a cell as chattering when its mean turnover exceeded \sweepChatThr{}
+per bar, a threshold fixed before the sweep ran; the median cell sits at
+\sweepTurnMedian{}. \sweepChatCells{} of the \sweepChatDenom{} cells cross it:
+\sweepChatQalu{} of \sweepQaluCells{} under Q-ALU against \sweepChatOther{} of
+\sweepOtherCells{} under the others, with mean turnover of \sweepTurnQalu{}
+against \sweepTurnOther{}. Chattering is close to universal at \sweepEpochs{}
+epochs of \sweepSteps{} steps and only mildly more frequent under Q-ALU, so the
+bimodality of Table~\ref{tab:results} is a property of the full budget; the sweep
+neither confirms nor refutes the causal reading of it.
 
 \section{Discussion}
 

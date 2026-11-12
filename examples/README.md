@@ -8,9 +8,9 @@ Three runnable pieces, each answering a different question about the model.
 | `qalu_reference.py` | Is the Q-ALU formula in the paper the arithmetic the code runs? |
 | `qalu_kernel.cu` | What does the activation look like as a CUDA kernel? |
 
-All commands are run from the repository root with the project environment
-(`/home/faiq/.venv-deadband` in the paper's setup, or any venv with
-`pyproject.toml` installed).
+All commands are run from the repository root, in an environment where
+`pip install -e .` has been run (`pip install -e '.[export]'` if you also want
+the ONNX path).
 
 ## `quickstart.py` — one bar, end to end
 
