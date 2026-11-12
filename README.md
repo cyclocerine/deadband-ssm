@@ -137,6 +137,42 @@ this block.
 Q-ALU is bimodal rather than uniformly bad: 3 of its 10 cells trade below 0.02 turnover and average a Sharpe of +0.094, while the remaining 7 average -13.929 and pay 573% of notional per year in fees. The protocol forbids selecting the quiet subset, so the reported mean is the mean over both regimes.
 <!-- RESULTS:END -->
 
+## Robustness layer
+
+`metrics/policy.py` holds five causal transforms on the position path -- a
+no-trade band, a turnover cap, exponential smoothing, a seed ensemble, and a
+turnover guard. They sit after the model, so they change no training and no
+protocol number; `analysis/robustness.py` replays them over the saved cells and
+recomputes post-cost metrics.
+
+```bash
+python -m analysis.robustness --dir results/raw --out results/robustness.json
+```
+
+The guard is the one transform that behaves like a safety layer rather than a
+performance knob. It holds the book flat once the policy's own rolling turnover
+has stayed above 0.05 per bar for 200 bars, and re-arms only after 2,000 bars
+below half that threshold. It reads the target path, never its own output, and
+uses only bars up to `t`.
+
+| variant | Q-ALU | GELU | Swish | ReLU | Q-ALU exposure |
+|---|---|---|---|---|---|
+| raw | -9.72 | -0.63 | -0.84 | -0.53 | 0.89 |
+| turnover guard | -0.89 | -0.65 | -0.87 | -0.53 | 0.28 |
+| no-trade band 0.3 | -8.13 | +0.21 | -0.01 | +0.32 | 0.84 |
+| turnover cap 0.02 | +0.49 | +0.19 | -0.06 | +0.18 | 0.97 |
+
+Read the last two rows as a warning, not a fix. Banding and capping lift Q-ALU to
+roughly +0.2, but they lift every arm by the same amount and leave exposure at
+0.93-0.97 with turnover near 0.0004: what improves is the amount of time the book
+is long, not the timing. Active Sharpe stays between -0.5 and -1.4 for all four
+arms under every transform. The guard is the only row where the other arms do not
+move (max 0.03), because it only acts where the diagnosis says the policy is
+broken; it converts a -13.9 Sharpe regime into a flat book, and a flat book is
+not alpha. Seed ensembling makes Q-ALU worse (-19.11 over 5 folds, exposure 0.25):
+the chattering seeds are phase-locked, so averaging cancels exposure and leaves
+the cost.
+
 ## Cross-timeframe sweep
 
 A second grid asks whether the ordering of the four activations is a 5-minute
